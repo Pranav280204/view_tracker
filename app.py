@@ -10,11 +10,11 @@ import pytz
 app = Flask(__name__)
 
 # YouTube API setup
-API_KEY = os.getenv("API_KEY")  # Get from environment variable
+API_KEY = os.getenv("API_KEY")
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=API_KEY)
-VIDEO_ID = os.getenv("VIDEO_ID")  # Get from environment variable
+VIDEO_ID = os.getenv("VIDEO_ID")
 
 # SQLite setup
 def init_db():
@@ -23,6 +23,7 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS views (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
             timestamp TEXT,
             view_count INTEGER,
             view_gain INTEGER
@@ -56,10 +57,12 @@ def fetch_and_store_views():
             last_view = cursor.fetchone()
             view_gain = 0 if last_view is None else view_count - last_view[0]
             
-            # Store new data
+            # Store new data with date
+            date_str = now.strftime("%Y-%m-%d")
+            timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute(
-                "INSERT INTO views (timestamp, view_count, view_gain) VALUES (?, ?, ?)",
-                (now.strftime("%Y-%m-%d %H:%M:%S"), view_count, view_gain)
+                "INSERT INTO views (date, timestamp, view_count, view_gain) VALUES (?, ?, ?, ?)",
+                (date_str, timestamp_str, view_count, view_gain)
             )
             conn.commit()
             conn.close()
@@ -73,9 +76,22 @@ def index():
 
 @app.route("/api/views")
 def get_views():
+    today = datetime.datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
     conn = sqlite3.connect("views.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT timestamp, view_count, view_gain FROM views ORDER BY timestamp")
+    cursor.execute("SELECT timestamp, view_count, view_gain FROM views WHERE date = ? ORDER BY timestamp", (today,))
+    data = [
+        {"timestamp": row[0], "view_count": row[1], "view_gain": row[2]}
+        for row in cursor.fetchall()
+    ]
+    conn.close()
+    return jsonify(data)
+
+@app.route("/api/views/<date>")
+def get_views_by_date(date):
+    conn = sqlite3.connect("views.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT timestamp, view_count, view_gain FROM views WHERE date = ? ORDER BY timestamp", (date,))
     data = [
         {"timestamp": row[0], "view_count": row[1], "view_gain": row[2]}
         for row in cursor.fetchall()
@@ -87,7 +103,7 @@ def get_views():
 scheduler = BackgroundScheduler()
 scheduler.add_job(
     fetch_and_store_views,
-    trigger=CronTrigger(hour="0-9", minute="*/5", timezone="Asia/Kolkata")  # Every 5 minutes from 12 AM to 10 AM IST
+    trigger=CronTrigger(hour="0-9", minute="*/5", timezone="Asia/Kolkata")
 )
 scheduler.start()
 
