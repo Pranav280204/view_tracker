@@ -4,51 +4,90 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube Views Analysis</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        table { border-collapse: collapse; width: 100%; max-width: 800px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        h1 { text-align: center; }
-    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <h1>YouTube Video Views (12 AM - 10 AM)</h1>
-    <table id="viewsTable">
-        <thead>
-            <tr>
-                <th>Timestamp (UTC)</th>
-                <th>View Count</th>
-                <th>View Gain</th>
-            </tr>
-        </thead>
-        <tbody id="viewsBody"></tbody>
-    </table>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-4xl">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">YouTube Video Views (12 AM - 10 AM IST)</h1>
+        
+        <div class="mb-4">
+            <label for="datePicker" class="block text-sm font-medium text-gray-700">Select Date:</label>
+            <input type="date" id="datePicker" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" value="">
+        </div>
+
+        <div class="overflow-x-auto">
+            <table id="viewsTable" class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp (IST)</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Count</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Gain</th>
+                    </tr>
+                </thead>
+                <tbody id="viewsBody" class="bg-white divide-y divide-gray-200"></tbody>
+            </table>
+        </div>
+        <p id="loading" class="text-center text-gray-500 mt-4">Loading...</p>
+        <p id="error" class="text-center text-red-500 mt-4 hidden"></p>
+    </div>
 
     <script>
-        async function fetchViews() {
+        async function fetchViews(date = null) {
+            const loading = document.getElementById("loading");
+            const error = document.getElementById("error");
+            const tbody = document.getElementById("viewsBody");
+            
+            loading.classList.remove("hidden");
+            error.classList.add("hidden");
+            tbody.innerHTML = "";
+
             try {
-                const response = await fetch("/api/views");
+                const url = date ? `/api/views/${date}` : "/api/views";
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("Failed to fetch data");
                 const data = await response.json();
-                const tbody = document.getElementById("viewsBody");
-                tbody.innerHTML = "";
-                data.forEach(row => {
-                    const tr = document.createElement("tr");
-                    tr.innerHTML = `
-                        <td>${row.timestamp}</td>
-                        <td>${row.view_count}</td>
-                        <td>${row.view_gain}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            } catch (error) {
-                console.error("Error fetching views:", error);
+                
+                if (data.length === 0) {
+                    error.textContent = "No data available for this date.";
+                    error.classList.remove("hidden");
+                } else {
+                    data.forEach(row => {
+                        const tr = document.createElement("tr");
+                        tr.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.timestamp}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_count}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_gain}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+            } catch (err) {
+                error.textContent = `Error: ${err.message}`;
+                error.classList.remove("hidden");
+            } finally {
+                loading.classList.add("hidden");
             }
         }
 
-        // Fetch data initially and refresh every minute
-        fetchViews();
-        setInterval(fetchViews, 60000);
+        // Set default date to today (IST)
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        document.getElementById("datePicker").value = today;
+
+        // Fetch data initially
+        fetchViews(today);
+
+        // Update data when date changes
+        document.getElementById("datePicker").addEventListener("change", (e) => {
+            fetchViews(e.target.value);
+        });
+
+        // Refresh data every minute for the current date
+        setInterval(() => {
+            const selectedDate = document.getElementById("datePicker").value;
+            if (selectedDate === today) {
+                fetchViews(selectedDate);
+            }
+        }, 60000);
     </script>
 </body>
-</html> 
+</html>
