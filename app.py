@@ -1,5 +1,6 @@
 import sqlite3
 import datetime
+import os
 from flask import Flask, jsonify, render_template
 from googleapiclient.discovery import build
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -9,11 +10,11 @@ import pytz
 app = Flask(__name__)
 
 # YouTube API setup
-API_KEY = "YOUR_YOUTUBE_API_KEY"  # Replace with your API key
+API_KEY = os.getenv("API_KEY")  # Get from environment variable
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=API_KEY)
-VIDEO_ID = "YOUR_VIDEO_ID"  # Replace with your video ID
+VIDEO_ID = os.getenv("VIDEO_ID")  # Get from environment variable
 
 # SQLite setup
 def init_db():
@@ -29,6 +30,9 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+
+# Initialize database on app startup
+init_db()
 
 # Fetch views and store in database
 def fetch_and_store_views():
@@ -88,5 +92,4 @@ scheduler.add_job(
 scheduler.start()
 
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True)
