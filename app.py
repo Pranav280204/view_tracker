@@ -5,6 +5,7 @@ import json
 import re
 from flask import Flask, jsonify, render_template, request
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
@@ -15,7 +16,11 @@ app = Flask(__name__)
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 API_KEY = os.getenv("API_KEY")
-youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=API_KEY)
+try:
+    youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=API_KEY)
+except Exception as e:
+    print(f"Error initializing YouTube API client: {e}")
+    youtube = None
 
 # Load or initialize API key and video data
 CONFIG_FILE = "config.json"
@@ -30,8 +35,7 @@ def load_config():
             "API_KEY": API_KEY,
             "VIDEOS": []
         }
-        if video_id:
-            # Fetch title for initial video ID
+        if video_id and youtube:
             try:
                 request = youtube.videos().list(
                     part="snippet",
@@ -46,14 +50,6 @@ def load_config():
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f)
         return config
-
-def save_config(videos):
-    config = {
-        "API_KEY": API_KEY,
-        "VIDEOS": videos
-    }
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f)
 
 config = load_config()
 VIDEOS = config["VIDEOS"]
@@ -82,11 +78,12 @@ init_db()
 def fetch_and_store_views():
     now = datetime.datetime.now(pytz.timezone("Asia/Kolkata"))
     hour = now.hour
-    # Run only between 12 AM and 11 AM IST
     if 0 <= hour < 11:
         for video in VIDEOS:
             video_id = video["id"]
             try:
+                if not youtube:
+                    raise Exception("YouTube API client not initialized")
                 request = youtube.videos().list(
                     part="statistics",
                     id=video_id
@@ -100,7 +97,6 @@ def fetch_and_store_views():
                 conn = sqlite3.connect("views.db")
                 cursor = conn.cursor()
                 
-                # Get the last recorded view count for this video
                 cursor.execute(
                     "SELECT view_count FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1",
                     (video_id,)
@@ -108,7 +104,6 @@ def fetch_and_store_views():
                 last_view = cursor.fetchone()
                 view_gain = 0 if last_view is None else view_count - last_view[0]
                 
-                # Store new data with date and video ID
                 date_str = now.strftime("%Y-%m-%d")
                 timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
                 cursor.execute(
@@ -218,6 +213,8 @@ def add_video():
     
     # Fetch video title
     try:
+        if not youtube:
+            raise Exception("YouTube API client not initialized")
         request = youtube.videos().list(
             part="snippet",
             id=video_id
@@ -226,9 +223,12 @@ def add_video():
         if not response["items"]:
             return jsonify({"status": "error", "message": "Video not found"}), 400
         title = response["items"][0]["snippet"]["title"]
+    except HttpError as e:
+        print(f"YouTube API error fetching title for video ID {video_id}: {e}")
+        return jsonify({"status": "error", "message": f"Failed to fetch video title: {str(e)}"}), 500
     except Exception as e:
-        print(f"Error fetching title for video ID {video_id}: {e}")
-        title = "Unknown Title"
+        print(f"Unexpected error fetching title for video ID {video_id}: {e}")
+        return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
     
     VIDEOS.append({"id": video_id, "title": title})
     save_config(VIDEOS)
@@ -246,7 +246,6 @@ def remove_video():
     if video:
         VIDEOS.remove(video)
         save_config(VIDEOS)
-        # Clean up database for this video ID
         conn = sqlite3.connect("views.db")
         cursor = conn.cursor()
         cursor.execute("DELETE FROM views WHERE video_id = ?", (video_id,))
@@ -260,7 +259,7 @@ def remove_video():
 scheduler = BackgroundScheduler()
 scheduler.add_job(
     fetch_and_store_views,
-    trigger=CronTrigger(hour="0-10", minute="0", timezone="Asia/Kolkata")  # Every hour from 12 AM to 11 AM IST
+    trigger=CronTrigger(hour="0-10", minute="0", timezone="Asia/Kolkata")
 )
 scheduler.start()
 
