@@ -12,6 +12,11 @@ import pytz
 
 app = Flask(__name__)
 
+# Custom error handler for 500 errors
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"status": "error", "message": "Internal server error: " + str(error)}), 500
+
 # YouTube API setup
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
@@ -27,8 +32,21 @@ CONFIG_FILE = "config.json"
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+            # Validate VIDEOS structure
+            if "VIDEOS" not in config or not isinstance(config["VIDEOS"], list):
+                config["VIDEOS"] = []
+            # Ensure each video has required keys
+            config["VIDEOS"] = [
+                video for video in config["VIDEOS"]
+                if isinstance(video, dict) and "id" in video and "title" in video
+            ]
+            return config
+        except Exception as e:
+            print(f"Error loading config.json: {e}")
+            config = {"API_KEY": API_KEY, "VIDEOS": []}
     else:
         video_id = os.getenv("VIDEO_ID")
         config = {
@@ -47,9 +65,17 @@ def load_config():
             except Exception as e:
                 print(f"Error fetching title for initial video ID {video_id}: {e}")
                 config["VIDEOS"].append({"id": video_id, "title": "Unknown Title"})
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(config, f)
-        return config
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f)
+    return config
+
+def save_config(videos):
+    config = {
+        "API_KEY": API_KEY,
+        "VIDEOS": videos
+    }
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f)
 
 config = load_config()
 VIDEOS = config["VIDEOS"]
@@ -71,10 +97,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Initialize database on app startup
 init_db()
 
-# Fetch views and store in database for all videos
 def fetch_and_store_views():
     now = datetime.datetime.now(pytz.timezone("Asia/Kolkata"))
     hour = now.hour
@@ -115,7 +139,6 @@ def fetch_and_store_views():
             except Exception as e:
                 print(f"Error fetching views for video {video_id}: {e}")
 
-# Flask routes
 @app.route("/")
 def index():
     return render_template("index.html", videos=VIDEOS)
@@ -188,31 +211,36 @@ def get_total_views_gained(date):
 @app.route("/add_video", methods=["POST"])
 def add_video():
     global VIDEOS
-    video_link = request.form.get("video_link")
-    
-    if not video_link:
-        return jsonify({"status": "error", "message": "Video link is required"}), 400
-    
-    # Extract video ID from the link
-    video_id = None
-    patterns = [
-        r"(?:v=|\/)([0-9A-Za-z_-]{11}).*",
-        r"youtu\.be\/([0-9A-Za-z_-]{11})"
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, video_link)
-        if match:
-            video_id = match.group(1)
-            break
-    
-    if not video_id:
-        return jsonify({"status": "error", "message": "Invalid YouTube video link"}), 400
-    
-    if video_id in [video["id"] for video in VIDEOS]:
-        return jsonify({"status": "error", "message": "Video is already being tracked"}), 400
-    
-    # Fetch video title
     try:
+        video_link = request.form.get("video_link")
+        
+        if not video_link:
+            return jsonify({"status": "error", "message": "Video link is required"}), 400
+        
+        # Extract video ID from the link
+        video_id = None
+        patterns = [
+            r"(?:v=|\/)([0-9A-Za-z_-]{11}).*",
+            r"youtu\.be\/([0-9A-Za-z_-]{11})"
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, video_link)
+            if match:
+                video_id = match.group(1)
+                break
+        
+        if not video_id:
+            return jsonify({"status": "error", "message": "Invalid YouTube video link"}), 400
+        
+        # Validate VIDEOS structure before accessing
+        if not all(isinstance(video, dict) and "id" in video for video in VIDEOS):
+            print(f"Invalid VIDEOS structure: {VIDEOS}")
+            return jsonify({"status": "error", "message": "Internal error: Invalid video list structure"}), 500
+        
+        if video_id in [video["id"] for video in VIDEOS]:
+            return jsonify({"status": "error", "message": "Video is already being tracked"}), 400
+        
+        # Fetch video title
         if not youtube:
             raise Exception("YouTube API client not initialized")
         request = youtube.videos().list(
@@ -223,37 +251,41 @@ def add_video():
         if not response["items"]:
             return jsonify({"status": "error", "message": "Video not found"}), 400
         title = response["items"][0]["snippet"]["title"]
+        
+        VIDEOS.append({"id": video_id, "title": title})
+        save_config(VIDEOS)
+        return jsonify({"status": "success", "message": "Video added successfully", "title": title, "video_id": video_id})
     except HttpError as e:
         print(f"YouTube API error fetching title for video ID {video_id}: {e}")
         return jsonify({"status": "error", "message": f"Failed to fetch video title: {str(e)}"}), 500
     except Exception as e:
-        print(f"Unexpected error fetching title for video ID {video_id}: {e}")
+        print(f"Unexpected error in add_video for video link {video_link}: {e}")
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
-    
-    VIDEOS.append({"id": video_id, "title": title})
-    save_config(VIDEOS)
-    return jsonify({"status": "success", "message": "Video added successfully", "title": title, "video_id": video_id})
 
 @app.route("/remove_video", methods=["POST"])
 def remove_video():
     global VIDEOS
-    video_id = request.form.get("video_id")
-    
-    if not video_id:
-        return jsonify({"status": "error", "message": "Video ID is required"}), 400
-    
-    video = next((v for v in VIDEOS if v["id"] == video_id), None)
-    if video:
-        VIDEOS.remove(video)
-        save_config(VIDEOS)
-        conn = sqlite3.connect("views.db")
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM views WHERE video_id = ?", (video_id,))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success", "message": "Video removed successfully", "title": video["title"]})
-    else:
-        return jsonify({"status": "error", "message": "Video not found"}), 400
+    try:
+        video_id = request.form.get("video_id")
+        
+        if not video_id:
+            return jsonify({"status": "error", "message": "Video ID is required"}), 400
+        
+        video = next((v for v in VIDEOS if v["id"] == video_id), None)
+        if video:
+            VIDEOS.remove(video)
+            save_config(VIDEOS)
+            conn = sqlite3.connect("views.db")
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM views WHERE video_id = ?", (video_id,))
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "success", "message": "Video removed successfully", "title": video["title"]})
+        else:
+            return jsonify({"status": "error", "message": "Video not found"}), 400
+    except Exception as e:
+        print(f"Unexpected error in remove_video for video ID {video_id}: {e}")
+        return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
 # Scheduler setup
 scheduler = BackgroundScheduler()
