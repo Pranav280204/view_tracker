@@ -85,6 +85,12 @@
                     method: "POST",
                     body: formData
                 });
+                
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(`Server error: ${response.status} - ${text}`);
+                }
+                
                 const result = await response.json();
                 
                 message.classList.remove("hidden");
@@ -92,7 +98,6 @@
                     message.classList.remove("text-red-500");
                     message.classList.add("text-green-500");
                     message.textContent = result.message;
-                    // Add new video to the list
                     const li = document.createElement("li");
                     li.classList.add("flex", "items-center");
                     li.innerHTML = `
@@ -100,17 +105,13 @@
                         <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="${result.video_id}" data-video-title="${result.title}">Remove</button>
                     `;
                     videoList.appendChild(li);
-                    // Add to filter dropdown
                     const option = document.createElement("option");
                     option.value = result.video_id;
                     option.textContent = result.title;
                     option.setAttribute("data-title", result.title);
                     videoFilter.appendChild(option);
-                    // Clear input
                     e.target.reset();
-                    // Re-attach remove event listeners
                     attachRemoveListeners();
-                    // Refresh data
                     fetchViews(document.getElementById("datePicker").value, videoFilter.value);
                 } else {
                     message.classList.remove("text-green-500");
@@ -144,6 +145,12 @@
                             method: "POST",
                             body: formData
                         });
+                        
+                        if (!response.ok) {
+                            const text = await response.text();
+                            throw new Error(`Server error: ${response.status} - ${text}`);
+                        }
+                        
                         const result = await response.json();
                         
                         message.classList.remove("hidden");
@@ -151,16 +158,12 @@
                             message.classList.remove("text-red-500");
                             message.classList.add("text-green-500");
                             message.textContent = result.message;
-                            // Remove the video from the list
                             button.parentElement.remove();
-                            // Remove from filter dropdown
                             const option = videoFilter.querySelector(`option[value="${videoId}"]`);
                             if (option) option.remove();
-                            // If the removed video was selected, reset filter
                             if (videoFilter.value === videoId) {
                                 videoFilter.value = "";
                             }
-                            // Refresh data
                             fetchViews(document.getElementById("datePicker").value, videoFilter.value);
                         } else {
                             message.classList.remove("text-green-500");
@@ -177,10 +180,8 @@
             });
         }
 
-        // Attach remove listeners initially
         attachRemoveListeners();
 
-        // Fetch views data
         async function fetchViews(date = null, videoId = "") {
             const loading = document.getElementById("loading");
             const error = document.getElementById("error");
@@ -193,7 +194,6 @@
             tfoot.innerHTML = "";
 
             try {
-                // Fetch view data
                 let url;
                 if (videoId) {
                     url = date ? `/api/views/${date}/${videoId}` : `/api/views/${videoId}`;
@@ -201,14 +201,19 @@
                     url = date ? `/api/views/${date}` : "/api/views";
                 }
                 const response = await fetch(url);
-                if (!response.ok) throw new Error("Failed to fetch data");
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(`Server error: ${response.status} - ${text}`);
+                }
                 const data = await response.json();
                 
-                // Fetch total views gained
                 let totalUrl = date ? `/api/views/${date}/total` : "/api/views/total";
                 if (videoId) totalUrl += `?video_id=${videoId}`;
                 const totalResponse = await fetch(totalUrl);
-                if (!totalResponse.ok) throw new Error("Failed to fetch totals");
+                if (!totalResponse.ok) {
+                    const text = await totalResponse.text();
+                    throw new Error(`Server error: ${totalResponse.status} - ${text}`);
+                }
                 const totals = await totalResponse.json();
 
                 if (data.length === 0) {
@@ -225,7 +230,6 @@
                         tbody.appendChild(tr);
                     });
 
-                    // Add totals to footer
                     if (Object.keys(totals).length > 0) {
                         Object.keys(totals).forEach(video_title => {
                             const tr = document.createElement("tr");
@@ -245,14 +249,11 @@
             }
         }
 
-        // Set default date to today (IST)
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
         document.getElementById("datePicker").value = today;
 
-        // Fetch data initially
         fetchViews(today, document.getElementById("videoFilter").value);
 
-        // Update data when date or video filter changes
         document.getElementById("datePicker").addEventListener("change", (e) => {
             fetchViews(e.target.value, document.getElementById("videoFilter").value);
         });
@@ -261,7 +262,6 @@
             fetchViews(document.getElementById("datePicker").value, e.target.value);
         });
 
-        // Refresh data every minute for the current date
         setInterval(() => {
             const selectedDate = document.getElementById("datePicker").value;
             if (selectedDate === today) {
