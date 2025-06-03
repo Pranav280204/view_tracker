@@ -10,24 +10,24 @@
     <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-4xl">
         <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">YouTube Video Views (12 AM - 11 AM IST)</h1>
         
-        <!-- Form to add Video Link -->
+        <!-- Form to add Video ID -->
         <div class="mb-6">
-            <h2 class="text-lg font-semibold text-gray-700 mb-2">Add Video</h2>
+            <h2 class="text-lg font-semibold text-gray-700 mb-2">Add Video ID</h2>
             <form id="videoForm" class="space-y-4">
                 <div>
-                    <label for="videoLink" class="block text-sm font-medium text-gray-700">Video Link:</label>
-                    <input type="text" id="videoLink" name="video_link" class="mt-1 block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Enter YouTube Video Link (e.g., https://youtu.be/dQw4w9WgXcQ)" required>
+                    <label for="videoId" class="block text-sm font-medium text-gray-700">Video ID:</label>
+                    <input type="text" id="videoId" name="video_id" class="mt-1 block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Enter your YouTube Video ID" required>
                 </div>
                 <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">Add Video</button>
             </form>
             <p id="videoMessage" class="mt-2 text-sm hidden"></p>
             <div class="mt-4">
-                <h3 class="text-sm font-medium text-gray-700">Current Videos:</h3>
+                <h3 class="text-sm font-medium text-gray-700">Current Video IDs:</h3>
                 <ul id="videoList" class="list-disc list-inside text-sm text-gray-600">
-                    {% for video in videos %}
+                    {% for video_id in video_ids %}
                         <li class="flex items-center">
-                            <span class="video-title" data-video-id="{{ video.id }}">{{ video.title }}</span>
-                            <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="{{ video.id }}" data-video-title="{{ video.title }}">Remove</button>
+                            <span class="video-id">{{ video_id }}</span>
+                            <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="{{ video_id }}">Remove</button>
                         </li>
                     {% endfor %}
                 </ul>
@@ -44,8 +44,8 @@
                 <label for="videoFilter" class="block text-sm font-medium text-gray-700">Select Video:</label>
                 <select id="videoFilter" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                     <option value="">All Videos</option>
-                    {% for video in videos %}
-                        <option value="{{ video.id }}" data-title="{{ video.title }}">{{ video.title }}</option>
+                    {% for video_id in video_ids %}
+                        <option value="{{ video_id }}">{{ video_id }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -56,6 +56,7 @@
             <table id="viewsTable" class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video ID</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp (IST)</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Count</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Gain</th>
@@ -70,7 +71,7 @@
     </div>
 
     <script>
-        // Handle video form submission (Add Video Link)
+        // Handle video form submission (Add Video ID)
         document.getElementById("videoForm").addEventListener("submit", async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
@@ -85,12 +86,6 @@
                     method: "POST",
                     body: formData
                 });
-                
-                if (!response.ok) {
-                    const text = await response.text();
-                    throw new Error(`Server error: ${response.status} - ${text}`);
-                }
-                
                 const result = await response.json();
                 
                 message.classList.remove("hidden");
@@ -98,20 +93,24 @@
                     message.classList.remove("text-red-500");
                     message.classList.add("text-green-500");
                     message.textContent = result.message;
+                    // Add new video ID to the list
                     const li = document.createElement("li");
                     li.classList.add("flex", "items-center");
                     li.innerHTML = `
-                        <span class="video-title" data-video-id="${result.video_id}">${result.title}</span>
-                        <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="${result.video_id}" data-video-title="${result.title}">Remove</button>
+                        <span class="video-id">${formData.get("video_id")}</span>
+                        <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="${formData.get("video_id")}">Remove</button>
                     `;
                     videoList.appendChild(li);
+                    // Add to filter dropdown
                     const option = document.createElement("option");
-                    option.value = result.video_id;
-                    option.textContent = result.title;
-                    option.setAttribute("data-title", result.title);
+                    option.value = formData.get("video_id");
+                    option.textContent = formData.get("video_id");
                     videoFilter.appendChild(option);
+                    // Clear input
                     e.target.reset();
+                    // Re-attach remove event listeners
                     attachRemoveListeners();
+                    // Refresh data
                     fetchViews(document.getElementById("datePicker").value, videoFilter.value);
                 } else {
                     message.classList.remove("text-green-500");
@@ -132,7 +131,6 @@
             removeButtons.forEach(button => {
                 button.addEventListener("click", async () => {
                     const videoId = button.getAttribute("data-video-id");
-                    const videoTitle = button.getAttribute("data-video-title");
                     const message = document.getElementById("videoMessage");
                     const videoFilter = document.getElementById("videoFilter");
                     
@@ -145,12 +143,6 @@
                             method: "POST",
                             body: formData
                         });
-                        
-                        if (!response.ok) {
-                            const text = await response.text();
-                            throw new Error(`Server error: ${response.status} - ${text}`);
-                        }
-                        
                         const result = await response.json();
                         
                         message.classList.remove("hidden");
@@ -158,12 +150,16 @@
                             message.classList.remove("text-red-500");
                             message.classList.add("text-green-500");
                             message.textContent = result.message;
+                            // Remove the video ID from the list
                             button.parentElement.remove();
+                            // Remove from filter dropdown
                             const option = videoFilter.querySelector(`option[value="${videoId}"]`);
                             if (option) option.remove();
+                            // If the removed video was selected, reset filter
                             if (videoFilter.value === videoId) {
                                 videoFilter.value = "";
                             }
+                            // Refresh data
                             fetchViews(document.getElementById("datePicker").value, videoFilter.value);
                         } else {
                             message.classList.remove("text-green-500");
@@ -180,8 +176,10 @@
             });
         }
 
+        // Attach remove listeners initially
         attachRemoveListeners();
 
+        // Fetch views data
         async function fetchViews(date = null, videoId = "") {
             const loading = document.getElementById("loading");
             const error = document.getElementById("error");
@@ -194,6 +192,7 @@
             tfoot.innerHTML = "";
 
             try {
+                // Fetch view data
                 let url;
                 if (videoId) {
                     url = date ? `/api/views/${date}/${videoId}` : `/api/views/${videoId}`;
@@ -201,19 +200,14 @@
                     url = date ? `/api/views/${date}` : "/api/views";
                 }
                 const response = await fetch(url);
-                if (!response.ok) {
-                    const text = await response.text();
-                    throw new Error(`Server error: ${response.status} - ${text}`);
-                }
+                if (!response.ok) throw new Error("Failed to fetch data");
                 const data = await response.json();
                 
+                // Fetch total views gained
                 let totalUrl = date ? `/api/views/${date}/total` : "/api/views/total";
                 if (videoId) totalUrl += `?video_id=${videoId}`;
                 const totalResponse = await fetch(totalUrl);
-                if (!totalResponse.ok) {
-                    const text = await totalResponse.text();
-                    throw new Error(`Server error: ${totalResponse.status} - ${text}`);
-                }
+                if (!totalResponse.ok) throw new Error("Failed to fetch totals");
                 const totals = await totalResponse.json();
 
                 if (data.length === 0) {
@@ -223,6 +217,7 @@
                     data.forEach(row => {
                         const tr = document.createElement("tr");
                         tr.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.video_id}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.timestamp}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_count}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_gain}</td>
@@ -230,12 +225,14 @@
                         tbody.appendChild(tr);
                     });
 
+                    // Add totals to footer
                     if (Object.keys(totals).length > 0) {
-                        Object.keys(totals).forEach(video_title => {
+                        Object.keys(totals).forEach(video_id => {
                             const tr = document.createElement("tr");
                             tr.innerHTML = `
-                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900" colspan="2">Total Views Gained (${video_title})</td>
-                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${totals[video_title]}</td>
+                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${video_id}</td>
+                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900" colspan="2">Total Views Gained</td>
+                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${totals[video_id]}</td>
                             `;
                             tfoot.appendChild(tr);
                         });
@@ -249,11 +246,14 @@
             }
         }
 
+        // Set default date to today (IST)
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
         document.getElementById("datePicker").value = today;
 
+        // Fetch data initially
         fetchViews(today, document.getElementById("videoFilter").value);
 
+        // Update data when date or video filter changes
         document.getElementById("datePicker").addEventListener("change", (e) => {
             fetchViews(e.target.value, document.getElementById("videoFilter").value);
         });
@@ -262,6 +262,7 @@
             fetchViews(document.getElementById("datePicker").value, e.target.value);
         });
 
+        // Refresh data every minute for the current date
         setInterval(() => {
             const selectedDate = document.getElementById("datePicker").value;
             if (selectedDate === today) {
