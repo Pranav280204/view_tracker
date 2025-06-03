@@ -10,7 +10,7 @@ import pytz
 
 app = Flask(__name__)
 
-# Load or initialize API key and video ID
+# Load or initialize API key and video IDs
 CONFIG_FILE = "config.json"
 
 def load_config():
@@ -20,30 +20,28 @@ def load_config():
     else:
         config = {
             "API_KEY": os.getenv("API_KEY"),
-            "VIDEO_ID": os.getenv("VIDEO_ID")
+            "VIDEO_IDS": [os.getenv("VIDEO_ID")] if os.getenv("VIDEO_ID") else []
         }
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f)
         return config
 
-def save_config(api_key, video_id):
-    config = {"API_KEY": api_key, "VIDEO_ID": video_id}
+def save_config(video_ids):
+    config = {
+        "API_KEY": API_KEY,
+        "VIDEO_IDS": video_ids
+    }
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f)
 
 config = load_config()
 API_KEY = config["API_KEY"]
-VIDEO_ID = config["VIDEO_ID"]
+VIDEO_IDS = config["VIDEO_IDS"]
 
 # YouTube API setup
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
-
-def get_youtube_client():
-    global API_KEY
-    return build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=API_KEY)
-
-youtube = get_youtube_client()
+youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=API_KEY)
 
 # SQLite setup
 def init_db():
@@ -52,6 +50,7 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS views (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id TEXT,
             date TEXT,
             timestamp TEXT,
             view_count INTEGER,
@@ -64,54 +63,60 @@ def init_db():
 # Initialize database on app startup
 init_db()
 
-# Fetch views and store in database
+# Fetch views and store in database for all video IDs
 def fetch_and_store_views():
-    global VIDEO_ID, youtube
     now = datetime.datetime.now(pytz.timezone("Asia/Kolkata"))
     hour = now.hour
-    # Run only between 12 AM and 10 AM IST
-    if 0 <= hour < 10:
-        try:
-            request = youtube.videos().list(
-                part="statistics",
-                id=VIDEO_ID
-            )
-            response = request.execute()
-            view_count = int(response["items"][0]["statistics"]["viewCount"])
+    # Run only between 12 AM and 11 AM IST
+    if 0 <= hour < 11:
+        for video_id in VIDEO_IDS:
+            try:
+                request = youtube.videos().list(
+                    part="statistics",
+                    id=video_id
+                )
+                response = request.execute()
+                if not response["items"]:
+                    print(f"No data found for video ID: {video_id}")
+                    continue
+                view_count = int(response["items"][0]["statistics"]["viewCount"])
 
-            conn = sqlite3.connect("views.db")
-            cursor = conn.cursor()
-            
-            # Get the last recorded view count
-            cursor.execute("SELECT view_count FROM views ORDER BY timestamp DESC LIMIT 1")
-            last_view = cursor.fetchone()
-            view_gain = 0 if last_view is None else view_count - last_view[0]
-            
-            # Store new data with date
-            date_str = now.strftime("%Y-%m-%d")
-            timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
-            cursor.execute(
-                "INSERT INTO views (date, timestamp, view_count, view_gain) VALUES (?, ?, ?, ?)",
-                (date_str, timestamp_str, view_count, view_gain)
-            )
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"Error fetching views: {e}")
+                conn = sqlite3.connect("views.db")
+                cursor = conn.cursor()
+                
+                # Get the last recorded view count for this video
+                cursor.execute(
+                    "SELECT view_count FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1",
+                    (video_id,)
+                )
+                last_view = cursor.fetchone()
+                view_gain = 0 if last_view is None else view_count - last_view[0]
+                
+                # Store new data with date and video ID
+                date_str = now.strftime("%Y-%m-%d")
+                timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute(
+                    "INSERT INTO views (video_id, date, timestamp, view_count, view_gain) VALUES (?, ?, ?, ?, ?)",
+                    (video_id, date_str, timestamp_str, view_count, view_gain)
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"Error fetching views for video {video_id}: {e}")
 
 # Flask routes
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", video_ids=VIDEO_IDS)
 
 @app.route("/api/views")
 def get_views():
     today = datetime.datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
     conn = sqlite3.connect("views.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT timestamp, view_count, view_gain FROM views WHERE date = ? ORDER BY timestamp", (today,))
+    cursor.execute("SELECT video_id, timestamp, view_count, view_gain FROM views WHERE date = ? ORDER BY timestamp, video_id", (today,))
     data = [
-        {"timestamp": row[0], "view_count": row[1], "view_gain": row[2]}
+        {"video_id": row[0], "timestamp": row[1], "view_count": row[2], "view_gain": row[3]}
         for row in cursor.fetchall()
     ]
     conn.close()
@@ -121,34 +126,43 @@ def get_views():
 def get_views_by_date(date):
     conn = sqlite3.connect("views.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT timestamp, view_count, view_gain FROM views WHERE date = ? ORDER BY timestamp", (date,))
+    cursor.execute("SELECT video_id, timestamp, view_count, view_gain FROM views WHERE date = ? ORDER BY timestamp, video_id", (date,))
     data = [
-        {"timestamp": row[0], "view_count": row[1], "view_gain": row[2]}
+        {"video_id": row[0], "timestamp": row[1], "view_count": row[2], "view_gain": row[3]}
         for row in cursor.fetchall()
     ]
     conn.close()
     return jsonify(data)
 
-@app.route("/update_config", methods=["POST"])
-def update_config():
-    global API_KEY, VIDEO_ID, youtube
-    new_api_key = request.form.get("api_key")
+@app.route("/api/views/<date>/total")
+def get_total_views_gained(date):
+    conn = sqlite3.connect("views.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT video_id, SUM(view_gain) as total_gain FROM views WHERE date = ? GROUP BY video_id", (date,))
+    data = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    return jsonify(data)
+
+@app.route("/add_video", methods=["POST"])
+def add_video():
+    global VIDEO_IDS
     new_video_id = request.form.get("video_id")
     
-    if not new_api_key or not new_video_id:
-        return jsonify({"status": "error", "message": "Both API Key and Video ID are required"}), 400
+    if not new_video_id:
+        return jsonify({"status": "error", "message": "Video ID is required"}), 400
     
-    API_KEY = new_api_key
-    VIDEO_ID = new_video_id
-    save_config(new_api_key, new_video_id)
-    youtube = get_youtube_client()
-    return jsonify({"status": "success", "message": "API Key and Video ID updated successfully"})
+    if new_video_id not in VIDEO_IDS:
+        VIDEO_IDS.append(new_video_id)
+        save_config(VIDEO_IDS)
+        return jsonify({"status": "success", "message": "Video ID added successfully"})
+    else:
+        return jsonify({"status": "error", "message": "Video ID already exists"}), 400
 
 # Scheduler setup
 scheduler = BackgroundScheduler()
 scheduler.add_job(
     fetch_and_store_views,
-    trigger=CronTrigger(hour="0-9", minute="*/15", timezone="Asia/Kolkata")  # Every 15 minutes from 12 AM to 10 AM IST
+    trigger=CronTrigger(hour="0-10", minute="0", timezone="Asia/Kolkata")  # Every hour from 12 AM to 11 AM IST
 )
 scheduler.start()
 
