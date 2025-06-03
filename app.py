@@ -211,6 +211,7 @@ def get_total_views_gained(date):
 @app.route("/add_video", methods=["POST"])
 def add_video():
     global VIDEOS
+    video_link = None  # Define video_link to avoid UnboundLocalError in except block
     try:
         video_link = request.form.get("video_link")
         
@@ -259,12 +260,13 @@ def add_video():
         print(f"YouTube API error fetching title for video ID {video_id}: {e}")
         return jsonify({"status": "error", "message": f"Failed to fetch video title: {str(e)}"}), 500
     except Exception as e:
-        print(f"Unexpected error in add_video for video link {video_link}: {e}")
+        print(f"Unexpected error in add_video for video link {video_link or 'unknown'}: {e}")
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
 @app.route("/remove_video", methods=["POST"])
 def remove_video():
     global VIDEOS
+    video_id = None  # Define video_id to avoid UnboundLocalError in except block
     try:
         video_id = request.form.get("video_id")
         
@@ -284,7 +286,7 @@ def remove_video():
         else:
             return jsonify({"status": "error", "message": "Video not found"}), 400
     except Exception as e:
-        print(f"Unexpected error in remove_video for video ID {video_id}: {e}")
+        print(f"Unexpected error in remove_video for video ID {video_id or 'unknown'}: {e}")
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
 # Scheduler setup
