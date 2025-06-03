@@ -2,6 +2,7 @@ import sqlite3
 import datetime
 import os
 import json
+import re
 from flask import Flask, jsonify, render_template, request
 from googleapiclient.discovery import build
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -10,7 +11,7 @@ import pytz
 
 app = Flask(__name__)
 
-# Load or initialize API key and video IDs
+# Load or initialize API key and video data
 CONFIG_FILE = "config.json"
 
 def load_config():
@@ -18,25 +19,39 @@ def load_config():
         with open(CONFIG_FILE, "r") as f:
             return json.load(f)
     else:
+        video_id = os.getenv("VIDEO_ID")
         config = {
             "API_KEY": os.getenv("API_KEY"),
-            "VIDEO_IDS": [os.getenv("VIDEO_ID")] if os.getenv("VIDEO_ID") else []
+            "VIDEOS": []
         }
+        if video_id:
+            # Fetch title for initial video ID
+            try:
+                request = youtube.videos().list(
+                    part="snippet",
+                    id=video_id
+                )
+                response = request.execute()
+                title = response["items"][0]["snippet"]["title"] if response["items"] else "Unknown Title"
+                config["VIDEOS"].append({"id": video_id, "title": title})
+            except Exception as e:
+                print(f"Error fetching title for initial video ID {video_id}: {e}")
+                config["VIDEOS"].append({"id": video_id, "title": "Unknown Title"})
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f)
         return config
 
-def save_config(video_ids):
+def save_config(videos):
     config = {
         "API_KEY": API_KEY,
-        "VIDEO_IDS": video_ids
+        "VIDEOS": videos
     }
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f)
 
 config = load_config()
 API_KEY = config["API_KEY"]
-VIDEO_IDS = config["VIDEO_IDS"]
+VIDEOS = config["VIDEOS"]
 
 # YouTube API setup
 YOUTUBE_API_SERVICE_NAME = "youtube"
@@ -63,13 +78,14 @@ def init_db():
 # Initialize database on app startup
 init_db()
 
-# Fetch views and store in database for all video IDs
+# Fetch views and store in database for all videos
 def fetch_and_store_views():
     now = datetime.datetime.now(pytz.timezone("Asia/Kolkata"))
     hour = now.hour
     # Run only between 12 AM and 11 AM IST
     if 0 <= hour < 11:
-        for video_id in VIDEO_IDS:
+        for video in VIDEOS:
+            video_id = video["id"]
             try:
                 request = youtube.videos().list(
                     part="statistics",
@@ -107,7 +123,7 @@ def fetch_and_store_views():
 # Flask routes
 @app.route("/")
 def index():
-    return render_template("index.html", video_ids=VIDEO_IDS)
+    return render_template("index.html", videos=VIDEOS)
 
 @app.route("/api/views")
 def get_views():
@@ -115,10 +131,11 @@ def get_views():
     conn = sqlite3.connect("views.db")
     cursor = conn.cursor()
     cursor.execute("SELECT video_id, timestamp, view_count, view_gain FROM views WHERE date = ? ORDER BY timestamp, video_id", (today,))
-    data = [
-        {"video_id": row[0], "timestamp": row[1], "view_count": row[2], "view_gain": row[3]}
-        for row in cursor.fetchall()
-    ]
+    data = []
+    for row in cursor.fetchall():
+        video_id = row[0]
+        title = next((video["title"] for video in VIDEOS if video["id"] == video_id), "Unknown Title")
+        data.append({"video_id": video_id, "title": title, "timestamp": row[1], "view_count": row[2], "view_gain": row[3]})
     conn.close()
     return jsonify(data)
 
@@ -127,10 +144,11 @@ def get_views_by_date(date):
     conn = sqlite3.connect("views.db")
     cursor = conn.cursor()
     cursor.execute("SELECT video_id, timestamp, view_count, view_gain FROM views WHERE date = ? ORDER BY timestamp, video_id", (date,))
-    data = [
-        {"video_id": row[0], "timestamp": row[1], "view_count": row[2], "view_gain": row[3]}
-        for row in cursor.fetchall()
-    ]
+    data = []
+    for row in cursor.fetchall():
+        video_id = row[0]
+        title = next((video["title"] for video in VIDEOS if video["id"] == video_id), "Unknown Title")
+        data.append({"video_id": video_id, "title": title, "timestamp": row[1], "view_count": row[2], "view_gain": row[3]})
     conn.close()
     return jsonify(data)
 
@@ -142,10 +160,10 @@ def get_views_by_date_and_video(date, video_id):
         "SELECT video_id, timestamp, view_count, view_gain FROM views WHERE date = ? AND video_id = ? ORDER BY timestamp",
         (date, video_id)
     )
-    data = [
-        {"video_id": row[0], "timestamp": row[1], "view_count": row[2], "view_gain": row[3]}
-        for row in cursor.fetchall()
-    ]
+    data = []
+    for row in cursor.fetchall():
+        title = next((video["title"] for video in VIDEOS if video["id"] == row[0]), "Unknown Title")
+        data.append({"video_id": row[0], "title": title, "timestamp": row[1], "view_count": row[2], "view_gain": row[3]})
     conn.close()
     return jsonify(data)
 
@@ -164,45 +182,79 @@ def get_total_views_gained(date):
             "SELECT video_id, SUM(view_gain) as total_gain FROM views WHERE date = ? GROUP BY video_id",
             (date,)
         )
-    data = {row[0]: row[1] for row in cursor.fetchall()}
+    data = {}
+    for row in cursor.fetchall():
+        video_id = row[0]
+        title = next((video["title"] for video in VIDEOS if video["id"] == video_id), "Unknown Title")
+        data[title] = row[1]
     conn.close()
     return jsonify(data)
 
 @app.route("/add_video", methods=["POST"])
 def add_video():
-    global VIDEO_IDS
-    new_video_id = request.form.get("video_id")
+    global VIDEOS
+    video_link = request.form.get("video_link")
     
-    if not new_video_id:
-        return jsonify({"status": "error", "message": "Video ID is required"}), 400
+    if not video_link:
+        return jsonify({"status": "error", "message": "Video link is required"}), 400
     
-    if new_video_id not in VIDEO_IDS:
-        VIDEO_IDS.append(new_video_id)
-        save_config(VIDEO_IDS)
-        return jsonify({"status": "success", "message": "Video ID added successfully"})
-    else:
-        return jsonify({"status": "error", "message": "Video ID already exists"}), 400
+    # Extract video ID from the link
+    video_id = None
+    patterns = [
+        r"(?:v=|\/)([0-9A-Za-z_-]{11}).*",
+        r"youtu\.be\/([0-9A-Za-z_-]{11})"
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, video_link)
+        if match:
+            video_id = match.group(1)
+            break
+    
+    if not video_id:
+        return jsonify({"status": "error", "message": "Invalid YouTube video link"}), 400
+    
+    if video_id in [video["id"] for video in VIDEOS]:
+        return jsonify({"status": "error", "message": "Video is already being tracked"}), 400
+    
+    # Fetch video title
+    try:
+        request = youtube.videos().list(
+            part="snippet",
+            id=video_id
+        )
+        response = request.execute()
+        if not response["items"]:
+            return jsonify({"status": "error", "message": "Video not found"}), 400
+        title = response["items"][0]["snippet"]["title"]
+    except Exception as e:
+        print(f"Error fetching title for video ID {video_id}: {e}")
+        title = "Unknown Title"
+    
+    VIDEOS.append({"id": video_id, "title": title})
+    save_config(VIDEOS)
+    return jsonify({"status": "success", "message": "Video added successfully", "title": title, "video_id": video_id})
 
 @app.route("/remove_video", methods=["POST"])
 def remove_video():
-    global VIDEO_IDS
+    global VIDEOS
     video_id = request.form.get("video_id")
     
     if not video_id:
         return jsonify({"status": "error", "message": "Video ID is required"}), 400
     
-    if video_id in VIDEO_IDS:
-        VIDEO_IDS.remove(video_id)
-        save_config(VIDEO_IDS)
-        # Optional: Clean up database for this video ID
+    video = next((v for v in VIDEOS if v["id"] == video_id), None)
+    if video:
+        VIDEOS.remove(video)
+        save_config(VIDEOS)
+        # Clean up database for this video ID
         conn = sqlite3.connect("views.db")
         cursor = conn.cursor()
         cursor.execute("DELETE FROM views WHERE video_id = ?", (video_id,))
         conn.commit()
         conn.close()
-        return jsonify({"status": "success", "message": "Video ID removed successfully"})
+        return jsonify({"status": "success", "message": "Video removed successfully", "title": video["title"]})
     else:
-        return jsonify({"status": "error", "message": "Video ID not found"}), 400
+        return jsonify({"status": "error", "message": "Video not found"}), 400
 
 # Scheduler setup
 scheduler = BackgroundScheduler()
