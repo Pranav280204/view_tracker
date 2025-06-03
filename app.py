@@ -11,6 +11,12 @@ import pytz
 
 app = Flask(__name__)
 
+# YouTube API setup
+YOUTUBE_API_SERVICE_NAME = "youtube"
+YOUTUBE_API_VERSION = "v3"
+API_KEY = os.getenv("API_KEY")
+youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=API_KEY)
+
 # Load or initialize API key and video data
 CONFIG_FILE = "config.json"
 
@@ -21,7 +27,7 @@ def load_config():
     else:
         video_id = os.getenv("VIDEO_ID")
         config = {
-            "API_KEY": os.getenv("API_KEY"),
+            "API_KEY": API_KEY,
             "VIDEOS": []
         }
         if video_id:
@@ -50,13 +56,7 @@ def save_config(videos):
         json.dump(config, f)
 
 config = load_config()
-API_KEY = config["API_KEY"]
 VIDEOS = config["VIDEOS"]
-
-# YouTube API setup
-YOUTUBE_API_SERVICE_NAME = "youtube"
-YOUTUBE_API_VERSION = "v3"
-youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=API_KEY)
 
 # SQLite setup
 def init_db():
