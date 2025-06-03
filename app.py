@@ -158,6 +158,27 @@ def add_video():
     else:
         return jsonify({"status": "error", "message": "Video ID already exists"}), 400
 
+@app.route("/remove_video", methods=["POST"])
+def remove_video():
+    global VIDEO_IDS
+    video_id = request.form.get("video_id")
+    
+    if not video_id:
+        return jsonify({"status": "error", "message": "Video ID is required"}), 400
+    
+    if video_id in VIDEO_IDS:
+        VIDEO_IDS.remove(video_id)
+        save_config(VIDEO_IDS)
+        # Optional: Clean up database for this video ID
+        conn = sqlite3.connect("views.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM views WHERE video_id = ?", (video_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success", "message": "Video ID removed successfully"})
+    else:
+        return jsonify({"status": "error", "message": "Video ID not found"}), 400
+
 # Scheduler setup
 scheduler = BackgroundScheduler()
 scheduler.add_job(
