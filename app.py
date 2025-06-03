@@ -134,11 +134,36 @@ def get_views_by_date(date):
     conn.close()
     return jsonify(data)
 
-@app.route("/api/views/<date>/total")
-def get_total_views_gained(date):
+@app.route("/api/views/<date>/<video_id>")
+def get_views_by_date_and_video(date, video_id):
     conn = sqlite3.connect("views.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT video_id, SUM(view_gain) as total_gain FROM views WHERE date = ? GROUP BY video_id", (date,))
+    cursor.execute(
+        "SELECT video_id, timestamp, view_count, view_gain FROM views WHERE date = ? AND video_id = ? ORDER BY timestamp",
+        (date, video_id)
+    )
+    data = [
+        {"video_id": row[0], "timestamp": row[1], "view_count": row[2], "view_gain": row[3]}
+        for row in cursor.fetchall()
+    ]
+    conn.close()
+    return jsonify(data)
+
+@app.route("/api/views/<date>/total")
+def get_total_views_gained(date):
+    video_id = request.args.get("video_id")
+    conn = sqlite3.connect("views.db")
+    cursor = conn.cursor()
+    if video_id:
+        cursor.execute(
+            "SELECT video_id, SUM(view_gain) as total_gain FROM views WHERE date = ? AND video_id = ? GROUP BY video_id",
+            (date, video_id)
+        )
+    else:
+        cursor.execute(
+            "SELECT video_id, SUM(view_gain) as total_gain FROM views WHERE date = ? GROUP BY video_id",
+            (date,)
+        )
     data = {row[0]: row[1] for row in cursor.fetchall()}
     conn.close()
     return jsonify(data)
