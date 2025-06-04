@@ -4,185 +4,183 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube View Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9fafb;
+        }
+        #viewChart {
+            max-height: 400px;
+        }
+        .error {
+            color: red;
+            display: none;
+        }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen flex flex-col">
-    <header class="bg-blue-600 text-white p-4 shadow-md">
-        <h1 class="text-2xl font-bold text-center">YouTube View Tracker</h1>
-    </header>
-    <main class="container mx-auto p-4 flex-grow">
-        <!-- Add Video Form -->
-        <section class="mb-6 bg-white p-6 rounded-lg shadow-md">
-            <h2 class="text-xl font-semibold mb-4">Add YouTube Video</h2>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold mb-6 text-center">YouTube View Tracker</h1>
+
+        <!-- Form to add video ID -->
+        <div class="mb-6">
             <form id="add-video-form" class="flex flex-col sm:flex-row gap-4">
-                <input type="text" id="video-id" placeholder="Enter YouTube Video ID (e.g., dQw4w9WgXcQ)" class="flex-grow p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                <button type="submit" class="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">Add Video</button>
+                <input
+                    type="text"
+                    id="video-id"
+                    placeholder="Enter YouTube Video ID (e.g., dQw4w9WgXcQ)"
+                    class="p-2 border rounded-lg w-full sm:w-1/2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                <button
+                    type="submit"
+                    class="bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition"
+                >
+                    Add Video
+                </button>
             </form>
-            <p id="form-message" class="mt-2 text-sm"></p>
-        </section>
+            <p id="add-error" class="error mt-2">Error: Unable to add video ID</p>
+        </div>
 
-        <!-- Video List -->
-        <section class="mb-6 bg-white p-6 rounded-lg shadow-md">
-            <h2 class="text-xl font-semibold mb-4">Tracked Videos</h2>
-            <ul id="video-list" class="space-y-2">
+        <!-- List of tracked videos -->
+        <div class="mb-6">
+            <h2 class="text-2xl font-semibold mb-4">Tracked Videos</h2>
+            {% if video_ids %}
+                <ul class="space-y-2">
+                    {% for video_id in video_ids %}
+                        <li class="flex justify-between items-center p-2 bg-white rounded-lg shadow">
+                            <span>{{ video_id }}</span>
+                            <button
+                                onclick="removeVideo('{{ video_id }}')"
+                                class="bg-red-500 text-white px-4 py-1 rounded-lg hover:bg-red-600 transition"
+                            >
+                                Remove
+                            </button>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="text-gray-500">No videos are being tracked. Add a video ID above.</p>
+            {% endif %}
+            <p id="remove-error" class="error mt-2">Error: Unable to remove video ID</p>
+        </div>
+
+        <!-- Video selection and chart -->
+        <div>
+            <h2 class="text-2xl font-semibold mb-4">View Data</h2>
+            <select
+                id="video-select"
+                onchange="loadVideoData()"
+                class="p-2 border rounded-lg mb-4 w-full sm:w-1/3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+                <option value="">Select a video to track</option>
                 {% for video_id in video_ids %}
-                <li class="flex justify-between items-center p-2 bg-gray-50 rounded hover:bg-gray-100">
-                    <span class="cursor-pointer text-blue-600 hover:underline" onclick="loadVideoData('{{ video_id }}')">{{ video_id }}</span>
-                    <button onclick="removeVideo('{{ video_id }}')" class="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition">Remove</button>
-                </li>
+                    <option value="{{ video_id }}">{{ video_id }}</option>
                 {% endfor %}
-            </ul>
-        </section>
-
-        <!-- Chart Section -->
-        <section class="bg-white p-6 rounded-lg shadow-md">
-            <h2 class="text-xl font-semibold mb-4">View Count and Gains</h2>
-            <canvas id="viewChart" class="w-full h-96"></canvas>
-            <p id="chart-message" class="mt-2 text-sm text-gray-600"></p>
-        </section>
-    </main>
-    <footer class="bg-gray-800 text-white text-center p-4">
-        <p>&copy; 2025 YouTube View Tracker</p>
-    </footer>
+            </select>
+            <p id="data-error" class="error mb-4">Error: Unable to load video data</p>
+            <canvas id="viewChart" class="w-full"></canvas>
+        </div>
+    </div>
 
     <script>
-        let chartInstance = null;
-
-        // Add Video
+        // Add video ID
         document.getElementById('add-video-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const videoId = document.getElementById('video-id').value.trim();
-            const messageEl = document.getElementById('form-message');
-            
+            const addError = document.getElementById('add-error');
+            addError.style.display = 'none';
+
             try {
-                const response = await axios.post('/add_video', { video_id: videoId }, {
-                    headers: { 'Content-Type': 'application/json' }
+                const response = await fetch('/add_video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_id: videoId })
                 });
-                if (response.data.success) {
-                    messageEl.className = 'mt-2 text-sm text-green-600';
-                    messageEl.textContent = response.data.message;
-                    // Reload video list
-                    const videoList = document.getElementById('video-list');
-                    const li = document.createElement('li');
-                    li.className = 'flex justify-between items-center p-2 bg-gray-50 rounded hover:bg-gray-100';
-                    li.innerHTML = `
-                        <span class="cursor-pointer text-blue-600 hover:underline" onclick="loadVideoData('${videoId}')">${videoId}</span>
-                        <button onclick="removeVideo('${videoId}')" class="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition">Remove</button>
-                    `;
-                    videoList.appendChild(li);
-                    document.getElementById('video-id').value = '';
+                const result = await response.json();
+                if (result.success) {
+                    location.reload();
                 } else {
-                    messageEl.className = 'mt-2 text-sm text-red-600';
-                    messageEl.textContent = response.data.message;
+                    addError.textContent = `Error: ${result.message}`;
+                    addError.style.display = 'block';
                 }
             } catch (error) {
-                messageEl.className = 'mt-2 text-sm text-red-600';
-                messageEl.textContent = 'Error adding video';
+                addError.textContent = 'Error: Network issue or server unavailable';
+                addError.style.display = 'block';
             }
         });
 
-        // Remove Video
+        // Remove video ID
         async function removeVideo(videoId) {
+            const removeError = document.getElementById('remove-error');
+            removeError.style.display = 'none';
+
             try {
-                const response = await axios.post(`/remove_video/${videoId}`);
-                if (response.data.success) {
-                    document.getElementById('form-message').className = 'mt-2 text-sm text-green-600';
-                    document.getElementById('form-message').textContent = response.data.message;
-                    // Remove from UI
-                    const videoList = document.getElementById('video-list');
-                    const items = videoList.getElementsByTagName('li');
-                    for (let li of items) {
-                        if (li.querySelector('span').textContent === videoId) {
-                            videoList.removeChild(li);
-                            break;
-                        }
-                    }
-                    // Clear chart if this video was selected
-                    if (chartInstance && chartInstance.data.datasets[0].label === videoId) {
-                        chartInstance.destroy();
-                        chartInstance = null;
-                        document.getElementById('chart-message').textContent = 'Select a video to view data';
-                    }
+                const response = await fetch(`/remove_video/${videoId}`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (result.success) {
+                    location.reload();
                 } else {
-                    document.getElementById('form-message').className = 'mt-2 text-sm text-red-600';
-                    document.getElementById('form-message').textContent = response.data.message;
+                    removeError.textContent = `Error: ${result.message}`;
+                    removeError.style.display = 'block';
                 }
             } catch (error) {
-                document.getElementById('form-message').className = 'mt-2 text-sm text-red-600';
-                document.getElementById('form-message').textContent = 'Error removing video';
+                removeError.textContent = 'Error: Network issue or server unavailable';
+                removeError.style.display = 'block';
             }
         }
 
-        // Load Video Data and Update Chart
-        async function loadVideoData(videoId) {
-            try {
-                const response = await axios.get(`/video_data/${videoId}`);
-                if (response.data.success) {
-                    const data = response.data.data;
-                    const labels = data.map(d => new Date(d.timestamp).toLocaleTimeString());
-                    const viewCounts = data.map(d => d.view_count);
-                    const viewGains = data.map(d => d.view_gain || 0); // Replace null with 0 for chart
+        // Load video data and render chart
+        let chartInstance = null;
+        async function loadVideoData() {
+            const videoId = document.getElementById('video-select').value;
+            const dataError = document.getElementById('data-error');
+            dataError.style.display = 'none';
 
+            if (!videoId) {
+                if (chartInstance) {
+                    chartInstance.destroy();
+                    chartInstance = null;
+                }
+                return;
+            }
+
+            try {
+                const response = await fetch(`/video_data/${videoId}`);
+                const result = await response.json();
+                if (result.success) {
+                    // Format timestamps to local time
+                    result.chart.data.labels = result.chart.data.labels.map(timestamp => 
+                        new Date(timestamp).toLocaleString()
+                    );
                     // Destroy existing chart if it exists
                     if (chartInstance) {
                         chartInstance.destroy();
                     }
-
                     // Create new chart
                     const ctx = document.getElementById('viewChart').getContext('2d');
-                    chartInstance = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [
-                                {
-                                    label: `Views for ${videoId}`,
-                                    data: viewCounts,
-                                    borderColor: 'rgba(59, 130, 246, 1)',
-                                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                                    fill: true,
-                                    yAxisID: 'y',
-                                },
-                                {
-                                    label: `View Gains for ${videoId}`,
-                                    data: viewGains,
-                                    borderColor: 'rgba(239, 68, 68, 1)',
-                                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                                    fill: true,
-                                    yAxisID: 'y1',
-                                }
-                            ]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                x: {
-                                    title: { display: true, text: 'Time' }
-                                },
-                                y: {
-                                    title: { display: true, text: 'View Count' },
-                                    beginAtZero: false
-                                },
-                                y1: {
-                                    title: { display: true, text: 'View Gain' },
-                                    position: 'right',
-                                    beginAtZero: true,
-                                    grid: { drawOnChartArea: false }
-                                }
-                            }
-                        }
-                    });
-                    document.getElementById('chart-message').textContent = '';
+                    chartInstance = new Chart(ctx, result.chart);
                 } else {
-                    document.getElementById('chart-message').className = 'mt-2 text-sm text-red-600';
-                    document.getElementById('chart-message').textContent = response.data.message;
+                    dataError.textContent = `Error: ${result.message}`;
+                    dataError.style.display = 'block';
+                    if (chartInstance) {
+                        chartInstance.destroy();
+                        chartInstance = null;
+                    }
                 }
             } catch (error) {
-                document.getElementById('chart-message').className = 'mt-2 text-sm text-red-600';
-                document.getElementById('chart-message').textContent = 'Error loading video data';
+                dataError.textContent = 'Error: Network issue or server unavailable';
+                dataError.style.display = 'block';
+                if (chartInstance) {
+                    chartInstance.destroy();
+                    chartInstance = null;
+                }
             }
         }
     </script>
