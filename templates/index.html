@@ -4,462 +4,178 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube View Tracker</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: #333;
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
         }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-            color: white;
-        }
-
-        .header h1 {
-            font-size: 3rem;
-            font-weight: 700;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-
-        .header p {
-            font-size: 1.2rem;
-            opacity: 0.9;
-        }
-
-        .controls {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
-        }
-
-        .add-video-form {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-
-        .input-group {
-            flex: 1;
-            min-width: 300px;
-            position: relative;
-        }
-
-        .input-group input {
-            width: 100%;
-            padding: 15px 50px 15px 20px;
-            border: 2px solid #e1e5e9;
-            border-radius: 12px;
-            font-size: 16px;
-            transition: all 0.3s ease;
-            background: white;
-        }
-
-        .input-group input:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .input-group .input-icon {
-            position: absolute;
-            right: 15px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #666;
-        }
-
-        .btn {
-            padding: 15px 30px;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            text-decoration: none;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
-        }
-
-        .btn-secondary {
-            background: #f8f9fa;
-            color: #666;
-            border: 2px solid #e1e5e9;
-        }
-
-        .btn-secondary:hover {
-            background: #e9ecef;
-            border-color: #667eea;
-        }
-
-        .btn-danger {
-            background: #dc3545;
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #c82333;
-            transform: translateY(-1px);
-        }
-
-        .btn-sm {
-            padding: 8px 16px;
-            font-size: 14px;
-        }
-
-        .dashboard {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 25px;
-            margin-bottom: 30px;
-        }
-
-        .video-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 25px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .video-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
-        }
-
-        .video-header {
-            display: flex;
-            align-items: flex-start;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .video-thumbnail {
-            width: 120px;
-            height: 90px;
-            border-radius: 12px;
-            object-fit: cover;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-
-        .video-info h3 {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 5px;
-            line-height: 1.4;
-            color: #333;
-        }
-
-        .video-info p {
-            color: #666;
-            font-size: 0.9rem;
-        }
-
-        .video-stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .stat-item {
-            text-align: center;
-            padding: 15px;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 12px;
-            transition: all 0.3s ease;
-        }
-
-        .stat-item:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-
-        .stat-value {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: #333;
-            display: block;
-        }
-
-        .stat-label {
-            font-size: 0.8rem;
-            color: #666;
-            margin-top: 5px;
-        }
-
-        .positive {
-            color: #28a745 !important;
-        }
-
-        .negative {
-            color: #dc3545 !important;
-        }
-
-        .chart-container {
-            position: relative;
-            height: 300px;
-            margin-bottom: 15px;
-            background: white;
-            border-radius: 12px;
-            padding: 15px;
-        }
-
-        .video-actions {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-
-        .alert {
-            padding: 15px 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            display: none;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-
-        .loading {
-            display: none;
-            text-align: center;
-            padding: 40px;
-            color: white;
-        }
-
-        .loading i {
-            font-size: 2rem;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: white;
-        }
-
-        .empty-state i {
-            font-size: 4rem;
-            margin-bottom: 20px;
-            opacity: 0.7;
-        }
-
-        .empty-state h2 {
-            font-size: 1.8rem;
-            margin-bottom: 10px;
-        }
-
-        .empty-state p {
-            font-size: 1.1rem;
-            opacity: 0.8;
-        }
-
-        .refresh-info {
-            text-align: center;
-            color: white;
-            margin-bottom: 20px;
-            opacity: 0.9;
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 15px;
-            }
-
-            .header h1 {
-                font-size: 2rem;
-            }
-
-            .add-video-form {
-                flex-direction: column;
-            }
-
-            .input-group {
-                min-width: auto;
-            }
-
-            .dashboard {
-                grid-template-columns: 1fr;
-            }
-
-            .video-stats {
-                grid-template-columns: 1fr;
-            }
-
-            .video-header {
-                flex-direction: column;
-                text-align: center;
-            }
-        }
-
         .fade-in {
             animation: fadeIn 0.5s ease-in;
         }
-
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        .modal {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .modal-hidden {
+            opacity: 0;
+            transform: scale(0.95);
+            pointer-events: none;
+        }
+        .modal-visible {
+            opacity: 1;
+            transform: scale(1);
+            pointer-events: auto;
+        }
+        .chart-container {
+            max-height: 300px;
+        }
     </style>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1><i class="fab fa-youtube"></i> YouTube View Tracker</h1>
-            <p>Monitor your YouTube video performance in real-time</p>
-        </div>
+<body class="min-h-screen text-gray-800">
+    <div class="container max-w-7xl mx-auto p-6">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-white drop-shadow-lg">
+                <i class="fa-brands fa-youtube mr-2"></i> YouTube View Tracker
+            </h1>
+            <p class="text-lg text-white/80 mt-2">Monitor your YouTube video performance in real-time, updated every minute</p>
+        </header>
 
-        <div class="controls">
-            <div class="add-video-form">
-                <div class="input-group">
-                    <input type="text" id="videoInput" placeholder="Enter YouTube video URL or ID">
-                    <i class="fas fa-link input-icon"></i>
+        <div class="bg-white/95 backdrop-blur-lg rounded-2xl p-6 mb-6 shadow-2xl">
+            <div class="flex flex-col md:flex-row gap-4 mb-4">
+                <div class="relative flex-1">
+                    <input type="text" id="videoInput" placeholder="Enter YouTube video URL or ID" 
+                           class="w-full p-4 pr-12 rounded-lg border-2 border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all">
+                    <i class="fas fa-link absolute right-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
                 </div>
-                <button class="btn btn-primary" onclick="addVideo()">
+                <button class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-4 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition-all flex items-center gap-2" onclick="addVideo()">
                     <i class="fas fa-plus"></i> Add Video
                 </button>
-                <button class="btn btn-secondary" onclick="refreshData()">
+                <button class="bg-gray-100 text-gray-700 px-6 py-4 rounded-lg font-semibold border-2 border-gray-200 hover:bg-gray-200 hover:border-indigo-500 transition-all flex items-center gap-2" onclick="refreshData()">
                     <i class="fas fa-sync-alt"></i> Refresh All
                 </button>
             </div>
 
-            <div class="alert alert-success" id="successAlert">
+            <div class="hidden bg-green-100 text-green-800 border border-green-200 rounded-lg p-4 flex items-center gap-2" id="successAlert">
                 <i class="fas fa-check-circle"></i>
                 <span id="successMessage"></span>
             </div>
-
-            <div class="alert alert-error" id="errorAlert">
+            <div class="hidden bg-red-100 text-red-800 border border-red-200 rounded-lg p-4 flex items-center gap-2" id="errorAlert">
                 <i class="fas fa-exclamation-circle"></i>
                 <span id="errorMessage"></span>
             </div>
         </div>
 
-        <div class="refresh-info">
-            <i class="fas fa-info-circle"></i>
-            Data updates automatically every 30 minutes
+        <div class="text-center text-white/80 mb-6">
+            <i class="fas fa-info-circle"></i> Data updates automatically every minute
         </div>
 
-        <div class="loading" id="loading">
-            <i class="fas fa-spinner"></i>
-            <p>Loading data...</p>
+        <div class="hidden text-center p-10 text-white" id="loading">
+            <i class="fas fa-spinner text-4xl animate-spin"></i>
+            <p class="mt-2">Loading data...</p>
         </div>
 
-        <div class="dashboard" id="dashboard">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="dashboard">
         </div>
 
-        <div class="empty-state" id="emptyState" style="display: none;">
-            <i class="fas fa-video"></i>
-            <h2>No Videos Added Yet</h2>
-            <p>Add your first YouTube video to start tracking its performance</p>
+        <div class="hidden text-center p-16 text-white" id="emptyState">
+            <i class="fas fa-video text-6xl mb-4 opacity-70"></i>
+            <h2 class="text-2xl font-semibold mb-2">No Videos Added Yet</h2>
+            <p class="text-lg opacity-80">Add your first YouTube video to start tracking its performance</p>
+        </div>
+
+        <!-- Modal for Detailed View -->
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center modal modal-hidden" id="detailModal">
+            <div class="bg-white rounded-2xl p-6 max-w-3xl w-full mx-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold" id="modalTitle">Video Details</h2>
+                    <button class="text-gray-500 hover:text-gray-700" onclick="closeModal()">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div class="chart-container">
+                    <canvas id="modalChart"></canvas>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
         let charts = {};
+        let modalChart = null;
 
         function showAlert(type, message) {
             const alertElement = document.getElementById(type === 'success' ? 'successAlert' : 'errorAlert');
             const messageElement = document.getElementById(type === 'success' ? 'successMessage' : 'errorMessage');
-            
             messageElement.textContent = message;
-            alertElement.style.display = 'flex';
-            
-            setTimeout(() => {
-                alertElement.style.display = 'none';
-            }, 5000);
+            alertElement.classList.remove('hidden');
+            setTimeout(() => alertElement.classList.add('hidden'), 5000);
         }
 
         function formatNumber(num) {
-            if (num >= 1000000) {
-                return (num / 1000000).toFixed(1) + 'M';
-            } else if (num >= 1000) {
-                return (num / 1000).toFixed(1) + 'K';
-            }
+            if (num == null) return 'N/A';
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
             return num.toLocaleString();
         }
 
         function formatDate(dateString) {
             const date = new Date(dateString);
-            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
         }
 
         async function addVideo() {
             const videoInput = document.getElementById('videoInput');
-            const videoId = videoInput.value.trim();
-            
+            let videoId = videoInput.value.trim();
+
+            // Extract video ID from URL if provided
+            if (videoId.includes('youtube.com') || videoId.includes('youtu.be')) {
+                const url = new URL(videoId.includes('http') ? videoId : `https://${videoId}`);
+                videoId = url.searchParams.get('v') || videoId.split('/').pop();
+            }
+
             if (!videoId) {
-                showAlert('error', 'Please enter a video URL or ID');
+                showAlert('error', 'Please enter a valid video URL or ID');
                 return;
             }
 
             try {
                 const response = await fetch('/add_video', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ video_id: videoId })
                 });
-
                 const data = await response.json();
-
                 if (data.success) {
                     showAlert('success', data.message);
                     videoInput.value = '';
                     setTimeout(() => loadDashboard(), 1000);
+                } else {
+                    showAlert('error', data.message);
+                }
+            } catch (error) {
+                showAlert('error', 'Error adding video: ' + error.message);
+            }
+        }
+
+        async function removeVideo(videoId) {
+            if (!confirm('Are you sure you want to remove this video from tracking?')) return;
+            try {
+                const response = await fetch(`/remove_video/${videoId}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showAlert('success', data.message);
+                    if (charts[videoId]) {
+                        charts[videoId].destroy();
+                        delete charts[videoId];
+                    }
+                    loadDashboard();
                 } else {
                     showAlert('error', data.message);
                 }
@@ -470,18 +186,9 @@
 
         async function refreshData() {
             try {
-                const response = await fetch('/trigger_update', {
-                    method: 'POST'
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    showAlert('success', data.message);
-                    setTimeout(() => loadDashboard(), 2000);
-                } else {
-                    showAlert('error', data.message);
-                }
+                // Since data is updated every minute, no need for manual trigger
+                showAlert('success', 'Data is being updated every minute');
+                loadDashboard();
             } catch (error) {
                 showAlert('error', 'Error refreshing data: ' + error.message);
             }
@@ -492,85 +199,76 @@
             const dashboard = document.getElementById('dashboard');
             const emptyState = document.getElementById('emptyState');
 
-            loading.style.display = 'block';
+            loading.classList.remove('hidden');
             dashboard.innerHTML = '';
-            emptyState.style.display = 'none';
+            emptyState.classList.add('hidden');
 
             try {
                 const response = await fetch('/dashboard_data');
                 const data = await response.json();
 
-                loading.style.display = 'none';
+                loading.classList.add('hidden');
 
                 if (data.success && data.data.length > 0) {
-                    dashboard.innerHTML = '';
-                    
                     for (const video of data.data) {
                         await createVideoCard(video);
                     }
                 } else {
-                    emptyState.style.display = 'block';
+                    emptyState.classList.remove('hidden');
                 }
             } catch (error) {
-                loading.style.display = 'none';
+                loading.classList.add('hidden');
                 showAlert('error', 'Error loading dashboard: ' + error.message);
             }
         }
 
         async function createVideoCard(video) {
             const dashboard = document.getElementById('dashboard');
-            
             const cardElement = document.createElement('div');
-            cardElement.className = 'video-card fade-in';
+            cardElement.className = 'video-card bg-white/95 backdrop-blur-lg rounded-2xl p-6 shadow-xl hover:shadow-2xl transition-all fade-in';
             cardElement.innerHTML = `
-                <div class="video-header">
+                <div class="flex flex-col sm:flex-row gap-4 mb-4">
                     <img src="${video.thumbnail_url || '/static/default-thumbnail.jpg'}" 
                          alt="Video thumbnail" 
-                         class="video-thumbnail"
+                         class="w-32 h-24 rounded-lg object-cover shadow-md"
                          onerror="this.src='/static/default-thumbnail.jpg'">
-                    <div class="video-info">
-                        <h3>${video.title || 'Unknown Title'}</h3>
-                        <p><i class="fas fa-user"></i> ${video.channel_title || 'Unknown Channel'}</p>
-                        <p><i class="fas fa-clock"></i> Last updated: ${formatDate(video.last_updated)}</p>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold text-gray-800 line-clamp-2">${video.title || 'Unknown Title'}</h3>
+                        <p class="text-sm text-gray-600"><i class="fas fa-user mr-1"></i> ${video.channel_title || 'Unknown Channel'}</p>
+                        <p class="text-sm text-gray-600"><i class="fas fa-clock mr-1"></i> Last updated: ${formatDate(video.last_updated)}</p>
                     </div>
                 </div>
-                
-                <div class="video-stats">
-                    <div class="stat-item">
-                        <span class="stat-value">${formatNumber(video.current_views)}</span>
-                        <div class="stat-label">Total Views</div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                    <div class="text-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all">
+                        <span class="block text-xl font-bold text-gray-800">${formatNumber(video.current_views)}</span>
+                        <span class="text-xs text-gray-600">Total Views</span>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-value ${video.latest_gain >= 0 ? 'positive' : 'negative'}">
+                    <div class="text-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all">
+                        <span class="block text-xl font-bold ${video.latest_gain >= 0 ? 'text-green-600' : 'text-red-600'}">
                             ${video.latest_gain >= 0 ? '+' : ''}${formatNumber(video.latest_gain)}
                         </span>
-                        <div class="stat-label">Latest Gain</div>
+                        <span class="text-xs text-gray-600">Latest Gain</span>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-value ${video.daily_gain >= 0 ? 'positive' : 'negative'}">
+                    <div class="text-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all">
+                        <span class="block text-xl font-bold ${video.daily_gain >= 0 ? 'text-green-600' : 'text-red-600'}">
                             ${video.daily_gain >= 0 ? '+' : ''}${formatNumber(video.daily_gain)}
                         </span>
-                        <div class="stat-label">24h Gain</div>
+                        <span class="text-xs text-gray-600">24h Gain</span>
                     </div>
                 </div>
-                
-                <div class="chart-container">
+                <div class="chart-container bg-white rounded-lg p-4 mb-4">
                     <canvas id="chart-${video.video_id}"></canvas>
                 </div>
-                
-                <div class="video-actions">
-                    <button class="btn btn-secondary btn-sm" onclick="viewDetails('${video.video_id}')">
+                <div class="flex justify-end gap-2">
+                    <button class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all flex items-center gap-2" onclick="viewDetails('${video.video_id}', '${video.title}')">
                         <i class="fas fa-chart-line"></i> Details
                     </button>
-                    <button class="btn btn-danger btn-sm" onclick="removeVideo('${video.video_id}')">
+                    <button class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-all flex items-center gap-2" onclick="removeVideo('${video.video_id}')">
                         <i class="fas fa-trash"></i> Remove
                     </button>
                 </div>
             `;
-            
             dashboard.appendChild(cardElement);
-            
-            // Load chart data
             await loadVideoChart(video.video_id);
         }
 
@@ -578,9 +276,10 @@
             try {
                 const response = await fetch(`/video_data/${videoId}`);
                 const data = await response.json();
-
                 if (data.success && data.data.length > 0) {
-                    createChart(videoId, data.data);
+                    // Limit to last 60 minutes (60 data points)
+                    const limitedData = data.data.slice(-60);
+                    createChart(videoId, limitedData);
                 }
             } catch (error) {
                 console.error('Error loading chart data:', error);
@@ -591,18 +290,17 @@
             const ctx = document.getElementById(`chart-${videoId}`);
             if (!ctx) return;
 
-            // Destroy existing chart if it exists
             if (charts[videoId]) {
                 charts[videoId].destroy();
             }
 
             const labels = data.map(item => {
                 const date = new Date(item.timestamp);
-                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             });
 
             const viewCounts = data.map(item => item.view_count);
-            const viewGains = data.map(item => item.view_gain);
+            const viewGains = data.map(item => item.view_gain || 0);
 
             charts[videoId] = new Chart(ctx, {
                 type: 'line',
@@ -612,8 +310,8 @@
                         {
                             label: 'Total Views',
                             data: viewCounts,
-                            borderColor: '#667eea',
-                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
                             tension: 0.4,
                             fill: true,
                             yAxisID: 'y'
@@ -621,8 +319,8 @@
                         {
                             label: 'View Gain',
                             data: viewGains,
-                            borderColor: '#28a745',
-                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                            borderColor: '#16a34a',
+                            backgroundColor: 'rgba(22, 163, 74, 0.1)',
                             tension: 0.4,
                             fill: false,
                             yAxisID: 'y1'
@@ -632,21 +330,14 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
+                    interaction: { mode: 'index', intersect: false },
                     plugins: {
-                        legend: {
-                            position: 'top',
-                        },
+                        legend: { position: 'top' },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
                                     let label = context.dataset.label || '';
-                                    if (label) {
-                                        label += ': ';
-                                    }
+                                    if (label) label += ': ';
                                     label += formatNumber(context.parsed.y);
                                     return label;
                                 }
@@ -655,92 +346,128 @@
                     },
                     scales: {
                         x: {
-                            display: true,
-                            title: {
-                                display: true,
-                                text: 'Time'
-                            },
-                            ticks: {
-                                maxTicksLimit: 6
-                            }
+                            title: { display: true, text: 'Time' },
+                            ticks: { maxTicksLimit: 6 }
                         },
                         y: {
                             type: 'linear',
-                            display: true,
                             position: 'left',
-                            title: {
-                                display: true,
-                                text: 'Total Views'
-                            },
-                            ticks: {
-                                callback: function(value) {
-                                    return formatNumber(value);
-                                }
-                            }
+                            title: { display: true, text: 'Total Views' },
+                            ticks: { callback: value => formatNumber(value) }
                         },
                         y1: {
                             type: 'linear',
-                            display: true,
                             position: 'right',
-                            title: {
-                                display: true,
-                                text: 'View Gain'
-                            },
-                            grid: {
-                                drawOnChartArea: false,
-                            },
-                            ticks: {
-                                callback: function(value) {
-                                    return formatNumber(value);
-                                }
-                            }
+                            title: { display: true, text: 'View Gain' },
+                            grid: { drawOnChartArea: false },
+                            ticks: { callback: value => formatNumber(value) }
                         }
                     }
                 }
             });
         }
 
-        async function viewDetails(videoId) {
-            // Create modal or navigate to detailed view
-            window.open(`https://youtube.com/watch?v=${videoId}`, '_blank');
-        }
-
-        // Event listeners
-        document.getElementById('videoInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                addVideo();
-            }
-        });
-
-        // Auto-refresh every 5 minutes
-        setInterval(() => {
-            loadDashboard();
-        }, 300000);
-
-        // Initial load
-        document.addEventListener('DOMContentLoaded', function() {
-            loadDashboard();
-        });('error', 'Error adding video: ' + error.message);
-            }
-        }
-
-        async function removeVideo(videoId) {
-            if (!confirm('Are you sure you want to remove this video from tracking?')) {
-                return;
-            }
+        async function viewDetails(videoId, title) {
+            const modal = document.getElementById('detailModal');
+            const modalTitle = document.getElementById('modalTitle');
+            modalTitle.textContent = title || 'Video Details';
+            modal.classList.remove('modal-hidden');
+            modal.classList.add('modal-visible');
 
             try {
-                const response = await fetch(`/remove_video/${videoId}`, {
-                    method: 'POST'
-                });
-
+                const response = await fetch(`/video_data/${videoId}`);
                 const data = await response.json();
-
-                if (data.success) {
-                    showAlert('success', data.message);
-                    loadDashboard();
-                } else {
-                    showAlert('error', data.message);
+                if (data.success && data.data.length > 0) {
+                    const limitedData = data.data.slice(-60); // Last 60 minutes
+                    if (modalChart) modalChart.destroy();
+                    const ctx = document.getElementById('modalChart');
+                    modalChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: limitedData.map(item => new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+                            datasets: [
+                                {
+                                    label: 'Total Views',
+                                    data: limitedData.map(item => item.view_count),
+                                    borderColor: '#4f46e5',
+                                    backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                                    tension: 0.4,
+                                    fill: true,
+                                    yAxisID: 'y'
+                                },
+                                {
+                                    label: 'View Gain',
+                                    data: limitedData.map(item => item.view_gain || 0),
+                                    borderColor: '#16a34a',
+                                    backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                                    tension: 0.4,
+                                    fill: false,
+                                    yAxisID: 'y1'
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                                legend: { position: 'top' },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            let label = context.dataset.label || '';
+                                            if (label) label += ': ';
+                                            label += formatNumber(context.parsed.y);
+                                            return label;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: { display: true, text: 'Time' },
+                                    ticks: { maxTicksLimit: 6 }
+                                },
+                                y: {
+                                    type: 'linear',
+                                    position: 'left',
+                                    title: { display: true, text: 'Total Views' },
+                                    ticks: { callback: value => formatNumber(value) }
+                                },
+                                y1: {
+                                    type: 'linear',
+                                    position: 'right',
+                                    title: { display: true, text: 'View Gain' },
+                                    grid: { drawOnChartArea: false },
+                                    ticks: { callback: value => formatNumber(value) }
+                                }
+                            }
+                        }
+                    });
                 }
             } catch (error) {
-                showAlert
+                showAlert('error', 'Error loading detailed view: ' + error.message);
+            }
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('detailModal');
+            modal.classList.remove('modal-visible');
+            modal.classList.add('modal-hidden');
+            if (modalChart) {
+                modalChart.destroy();
+                modalChart = null;
+            }
+        }
+
+        document.getElementById('videoInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') addVideo();
+        });
+
+        // Auto-refresh every minute
+        setInterval(() => loadDashboard(), 60000);
+
+        document.addEventListener('DOMContentLoaded', loadDashboard);
+    </script>
+</body>
+</html>
