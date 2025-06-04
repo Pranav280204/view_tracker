@@ -1,5 +1,6 @@
 flask
 google-api-python-client
 apscheduler
+SQLAlchemy>=2.0.0
 gunicorn
 pytz
