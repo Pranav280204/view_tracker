@@ -150,7 +150,7 @@ def remove_video(video_id):
 
 @app.route('/video_data/<video_id>')
 def video_data(video_id):
-    """Get view count data for a specific video ID."""
+    """Get view count data for a specific video ID, including view gain."""
     try:
         if not is_valid_youtube_id(video_id):
             return jsonify({'success': False, 'message': 'Invalid YouTube video ID'}), 400
@@ -162,6 +162,15 @@ def video_data(video_id):
                 (video_id, twenty_four_hours_ago)
             )
             data = [{'timestamp': row[0], 'view_count': row[1]} for row in cursor.fetchall()]
+        
+        # Calculate view_gain for each row
+        for i in range(len(data)):
+            if i == len(data) - 1:  # Last row (earliest timestamp) has no previous data
+                data[i]['view_gain'] = 0
+            else:
+                # Current view count - next row's view count (since sorted DESC)
+                data[i]['view_gain'] = data[i]['view_count'] - data[i + 1]['view_count']
+        
         return jsonify({'success': True, 'data': data})
     except sqlite3.Error as e:
         return jsonify({'success': False, 'message': f'Database error: {str(e)}'}), 500
