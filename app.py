@@ -4,6 +4,7 @@ import os
 import json
 import re
 from flask import Flask, jsonify, render_template, request
+from flask_cors import CORS
 from googleapiclient.discovery import build
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -11,6 +12,7 @@ import pytz
 import atexit
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Configuration file
 CONFIG_FILE = "config.json"
@@ -221,6 +223,11 @@ scheduler.start()
 # Shutdown scheduler on app exit
 atexit.register(lambda: scheduler.shutdown())
 
+@app.route('/test', methods=['GET', 'POST'])
+def test():
+    """Test endpoint to verify server is working."""
+    return jsonify({'success': True, 'message': 'Server is working!', 'method': request.method})
+
 @app.route('/')
 def index():
     """Render the main page with current video IDs."""
@@ -231,13 +238,24 @@ def index():
 def add_video():
     """Add a video ID to the configuration."""
     try:
-        data = request.get_json()
+        print("Add video endpoint called")  # Debug log
+        
+        # Handle both JSON and form data
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = request.form.to_dict()
+            
+        print(f"Received data: {data}")  # Debug log
+        
         video_input = data.get('video_id', '').strip()
         
         if not video_input:
             return jsonify({'success': False, 'message': 'Please provide a video ID or URL'}), 400
         
         video_id = extract_video_id(video_input)
+        print(f"Extracted video ID: {video_id}")  # Debug log
+        
         if not video_id:
             return jsonify({'success': False, 'message': 'Invalid YouTube video ID or URL'}), 400
         
@@ -248,26 +266,37 @@ def add_video():
         # Verify the video exists by trying to fetch its info
         if config['API_KEY']:
             try:
+                print("Verifying video with YouTube API")  # Debug log
                 youtube = build('youtube', 'v3', developerKey=config['API_KEY'])
-                request = youtube.videos().list(part="snippet", id=video_id)
-                response = request.execute()
+                request_obj = youtube.videos().list(part="snippet", id=video_id)
+                response = request_obj.execute()
                 
                 if not response.get('items'):
                     return jsonify({'success': False, 'message': 'Video not found or is private'}), 400
                 
+                print("Video verification successful")  # Debug log
+                
             except Exception as e:
                 print(f"Error verifying video: {e}")
                 return jsonify({'success': False, 'message': 'Error verifying video'}), 500
+        else:
+            print("No API key available, skipping verification")
         
         config['VIDEO_IDS'].append(video_id)
         save_config(config['VIDEO_IDS'])
         
+        print(f"Video {video_id} added successfully")  # Debug log
+        
         # Immediately fetch data for the new video
-        fetch_video_views()
+        try:
+            fetch_video_views()
+        except Exception as e:
+            print(f"Error fetching initial data: {e}")
         
         return jsonify({'success': True, 'message': 'Video added successfully', 'video_id': video_id})
         
     except Exception as e:
+        print(f"Error in add_video: {e}")  # Debug log
         return jsonify({'success': False, 'message': f'Error adding video: {str(e)}'}), 500
 
 @app.route('/remove_video/<video_id>', methods=['POST'])
