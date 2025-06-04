@@ -205,7 +205,7 @@ def remove_video():
 scheduler = BackgroundScheduler()
 scheduler.add_job(
     fetch_and_store_views,
-    trigger=CronTrigger(hour="*", minute="0", timezone="Asia/Kolkata")  # Every hour, 24/7
+    trigger=CronTrigger(minute="*", timezone="Asia/Kolkata")  # Every minute, 24/7
 )
 scheduler.start()
 
