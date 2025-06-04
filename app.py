@@ -104,7 +104,7 @@ init_db()
 scheduler = BackgroundScheduler(timezone=pytz.UTC)
 scheduler.add_job(
     fetch_video_views,
-    trigger=CronTrigger(hour='*', minute=0),  # Run every hour
+    trigger=CronTrigger(minute='*'),  # Run every minute
     id='fetch_video_views',
     replace_existing=True
 )
@@ -154,11 +154,12 @@ def video_data(video_id):
     try:
         if not is_valid_youtube_id(video_id):
             return jsonify({'success': False, 'message': 'Invalid YouTube video ID'}), 400
+        twenty_four_hours_ago = (datetime.datetime.now(pytz.UTC) - datetime.timedelta(hours=24)).isoformat()
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT timestamp, view_count FROM video_views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 24",
-                (video_id,)
+                "SELECT timestamp, view_count FROM video_views WHERE video_id = ? AND timestamp >= ? ORDER BY timestamp DESC",
+                (video_id, twenty_four_hours_ago)
             )
             data = [{'timestamp': row[0], 'view_count': row[1]} for row in cursor.fetchall()]
         return jsonify({'success': True, 'data': data})
