@@ -16,227 +16,202 @@
             <form id="videoForm" class="space-y-4">
                 <div>
                     <label for="videoId" class="block text-sm font-medium text-gray-700">Video ID:</label>
-                    <input type="text" id="videoId" name="video_id" class="mt-1 block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Enter your YouTube Video ID" required>
+                    <input type="text" id="videoId" name="video_id" class="mt-1 block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Enter YouTube Video ID (e.g., dQw4w9WgXcQ)" required>
                 </div>
-                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">Add Video</button>
+                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500" aria-label="Add YouTube video ID">Add Video</button>
             </form>
-            <p id="videoMessage" class="mt-2 text-sm hidden"></p>
+            <p id="videoMessage" class="mt-2 text-sm hidden" aria-live="polite"></p>
             <div class="mt-4">
                 <h3 class="text-sm font-medium text-gray-700">Current Video IDs:</h3>
                 <ul id="videoList" class="list-disc list-inside text-sm text-gray-600">
                     {% for video_id in video_ids %}
-                        <li class="flex items-center">
+                        <li class="flex items-center" data-video-id="{{ video_id }}">
                             <span class="video-id">{{ video_id }}</span>
-                            <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="{{ video_id }}">Remove</button>
+                            <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="{{ video_id }}" aria-label="Remove video ID {{ video_id }}">Remove</button>
                         </li>
                     {% endfor %}
                 </ul>
             </div>
         </div>
 
-        <!-- Date Picker and Video Filter -->
-        <div class="mb-4 flex space-x-4">
-            <div>
-                <label for="datePicker" class="block text-sm font-medium text-gray-700">Select Date:</label>
-                <input type="date" id="datePicker" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" value="">
+        <!-- Filters and Table -->
+        <div class="mb-6">
+            <h2 class="text-lg font-semibold text-gray-700 mb-2">View Data</h2>
+            <div class="flex flex-col sm:flex-row sm:space-x-4 mb-4">
+                <div>
+                    <label for="datePicker" class="block text-sm font-medium text-gray-700">Select Date:</label>
+                    <input type="date" id="datePicker" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="videoFilter" class="block text-sm font-medium text-gray-700">Select Video:</label>
+                    <select id="videoFilter" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        <option value="all">All Videos</option>
+                        {% for video_id in video_ids %}
+                            <option value="{{ video_id }}">{{ video_id }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
             </div>
-            <div>
-                <label for="videoFilter" class="block text-sm font-medium text-gray-700">Select Video:</label>
-                <select id="videoFilter" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                    <option value="">All Videos</option>
-                    {% for video_id in video_ids %}
-                        <option value="{{ video_id }}">{{ video_id }}</option>
-                    {% endfor %}
-                </select>
+            <p id="error" class="text-sm text-red-500 hidden" aria-live="polite"></p>
+            <p id="loading" class="text-sm text-gray-500 hidden">Loading...</p>
+            <div class="overflow-x-auto">
+                <table id="viewsTable" class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video ID</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Count</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Gain</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200"></tbody>
+                    <tfoot class="bg-gray-50"></tfoot>
+                </table>
             </div>
         </div>
-
-        <!-- Data Table -->
-        <div class="overflow-x-auto">
-            <table id="viewsTable" class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video ID</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp (IST)</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Count</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Gain</th>
-                    </tr>
-                </thead>
-                <tbody id="viewsBody" class="bg-white divide-y divide-gray-200"></tbody>
-                <tfoot id="viewsFooter" class="bg-gray-50"></tfoot>
-            </table>
-        </div>
-        <p id="loading" class="text-center text-gray-500 mt-4">Loading...</p>
-        <p id="error" class="text-center text-red-500 mt-4 hidden"></p>
     </div>
 
     <script>
-        // Handle video form submission (Add Video ID)
-        document.getElementById("videoForm").addEventListener("submit", async (e) => {
+        // Validate YouTube video ID
+        function isValidYouTubeVideoId(id) {
+            return /^[a-zA-Z0-9_-]{11}$/.test(id);
+        }
+
+        // Handle form submission for adding video ID
+        document.getElementById('videoForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const formData = new FormData(e.target);
-            const message = document.getElementById("videoMessage");
-            const videoList = document.getElementById("videoList");
-            const videoFilter = document.getElementById("videoFilter");
-            
-            message.classList.add("hidden");
-            
+            const videoId = document.getElementById('videoId').value;
+            const message = document.getElementById('videoMessage');
+            const videoList = document.getElementById('videoList');
+            const videoFilter = document.getElementById('videoFilter');
+
+            if (!isValidYouTubeVideoId(videoId)) {
+                message.textContent = 'Invalid YouTube video ID. Must be 11 characters (letters, numbers, -, _).';
+                message.classList.remove('hidden', 'text-green-500');
+                message.classList.add('text-red-500');
+                return;
+            }
+
             try {
-                const response = await fetch("/add_video", {
-                    method: "POST",
-                    body: formData
+                const response = await fetch('/add_video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_id: videoId })
                 });
                 const result = await response.json();
-                
-                message.classList.remove("hidden");
-                if (result.status === "success") {
-                    message.classList.remove("text-red-500");
-                    message.classList.add("text-green-500");
-                    message.textContent = result.message;
-                    // Add new video ID to the list
-                    const li = document.createElement("li");
-                    li.classList.add("flex", "items-center");
-                    li.innerHTML = `
-                        <span class="video-id">${formData.get("video_id")}</span>
-                        <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="${formData.get("video_id")}">Remove</button>
-                    `;
+                message.textContent = result.message;
+                message.classList.remove('hidden');
+                message.classList.add(result.success ? 'text-green-500' : 'text-red-500');
+
+                if (result.success) {
+                    const li = document.createElement('li');
+                    li.className = 'flex items-center';
+                    li.dataset.videoId = videoId;
+                    li.innerHTML = `<span class="video-id">${videoId}</span><button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="${videoId}" aria-label="Remove video ID ${videoId}">Remove</button>`;
                     videoList.appendChild(li);
-                    // Add to filter dropdown
-                    const option = document.createElement("option");
-                    option.value = formData.get("video_id");
-                    option.textContent = formData.get("video_id");
+
+                    const option = document.createElement('option');
+                    option.value = videoId;
+                    option.textContent = videoId;
                     videoFilter.appendChild(option);
-                    // Clear input
-                    e.target.reset();
-                    // Re-attach remove event listeners
-                    attachRemoveListeners();
-                    // Refresh data
-                    fetchViews(document.getElementById("datePicker").value, videoFilter.value);
-                } else {
-                    message.classList.remove("text-green-500");
-                    message.classList.add("text-red-500");
-                    message.textContent = result.message;
+
+                    document.getElementById('videoId').value = '';
+                    fetchViews(document.getElementById('datePicker').value, videoFilter.value);
                 }
-            } catch (err) {
-                message.classList.remove("hidden");
-                message.classList.remove("text-green-500");
-                message.classList.add("text-red-500");
-                message.textContent = `Error: ${err.message}`;
+            } catch (error) {
+                message.textContent = 'Error communicating with server';
+                message.classList.remove('hidden', 'text-green-500');
+                message.classList.add('text-red-500');
             }
         });
 
-        // Handle remove video
-        function attachRemoveListeners() {
-            const removeButtons = document.querySelectorAll(".remove-video");
-            removeButtons.forEach(button => {
-                button.addEventListener("click", async () => {
-                    const videoId = button.getAttribute("data-video-id");
-                    const message = document.getElementById("videoMessage");
-                    const videoFilter = document.getElementById("videoFilter");
-                    
-                    message.classList.add("hidden");
-                    
-                    try {
-                        const formData = new FormData();
-                        formData.append("video_id", videoId);
-                        const response = await fetch("/remove_video", {
-                            method: "POST",
-                            body: formData
-                        });
-                        const result = await response.json();
-                        
-                        message.classList.remove("hidden");
-                        if (result.status === "success") {
-                            message.classList.remove("text-red-500");
-                            message.classList.add("text-green-500");
-                            message.textContent = result.message;
-                            // Remove the video ID from the list
-                            button.parentElement.remove();
-                            // Remove from filter dropdown
-                            const option = videoFilter.querySelector(`option[value="${videoId}"]`);
-                            if (option) option.remove();
-                            // If the removed video was selected, reset filter
-                            if (videoFilter.value === videoId) {
-                                videoFilter.value = "";
-                            }
-                            // Refresh data
-                            fetchViews(document.getElementById("datePicker").value, videoFilter.value);
-                        } else {
-                            message.classList.remove("text-green-500");
-                            message.classList.add("text-red-500");
-                            message.textContent = result.message;
-                        }
-                    } catch (err) {
-                        message.classList.remove("hidden");
-                        message.classList.remove("text-green-500");
-                        message.classList.add("text-red-500");
-                        message.textContent = `Error: ${err.message}`;
+        // Handle remove button clicks
+        document.getElementById('videoList').addEventListener('click', async (e) => {
+            if (e.target.classList.contains('remove-video')) {
+                const videoId = e.target.dataset.videoId;
+                const message = document.getElementById('videoMessage');
+                const videoFilter = document.getElementById('videoFilter');
+                try {
+                    const response = await fetch(`/remove_video/${videoId}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const result = await response.json();
+                    message.textContent = result.message;
+                    message.classList.remove('hidden');
+                    message.classList.add(result.success ? 'text-green-500' : 'text-red-500');
+
+                    if (result.success) {
+                        const li = document.querySelector(`li[data-video-id="${videoId}"]`);
+                        if (li) li.remove();
+                        const option = videoFilter.querySelector(`option[value="${videoId}"]`);
+                        if (option) option.remove();
+                        fetchViews(document.getElementById('datePicker').value, videoFilter.value);
                     }
-                });
-            });
-        }
+                } catch (error) {
+                    message.textContent = 'Error communicating with server';
+                    message.classList.remove('hidden', 'text-green-500');
+                    message.classList.add('text-red-500');
+                }
+            }
+        });
 
-        // Attach remove listeners initially
-        attachRemoveListeners();
-
-        // Fetch views data
-        async function fetchViews(date = null, videoId = "") {
-            const loading = document.getElementById("loading");
+        // Fetch and display view data
+        async function fetchViews(date, videoId) {
+            const tbody = document.querySelector("#viewsTable tbody");
+            const tfoot = document.querySelector("#viewsTable tfoot");
             const error = document.getElementById("error");
-            const tbody = document.getElementById("viewsBody");
-            const tfoot = document.getElementById("viewsFooter");
-            
-            loading.classList.remove("hidden");
-            error.classList.add("hidden");
+            const loading = document.getElementById("loading");
             tbody.innerHTML = "";
             tfoot.innerHTML = "";
+            error.classList.add("hidden");
+            loading.classList.remove("hidden");
 
             try {
-                // Fetch view data
-                let url;
-                if (videoId) {
-                    url = date ? `/api/views/${date}/${videoId}` : `/api/views/${videoId}`;
-                } else {
-                    url = date ? `/api/views/${date}` : "/api/views";
-                }
-                const response = await fetch(url);
-                if (!response.ok) throw new Error("Failed to fetch data");
-                const data = await response.json();
-                
-                // Fetch total views gained
-                let totalUrl = date ? `/api/views/${date}/total` : "/api/views/total";
-                if (videoId) totalUrl += `?video_id=${videoId}`;
-                const totalResponse = await fetch(totalUrl);
-                if (!totalResponse.ok) throw new Error("Failed to fetch totals");
-                const totals = await totalResponse.json();
+                const videoIds = videoId === "all" ? [{% for video_id in video_ids %}"{{ video_id }}",{% endfor %}] : [videoId];
+                const totals = {};
 
-                if (data.length === 0) {
-                    error.textContent = "No data available for this date/video.";
-                    error.classList.remove("hidden");
-                } else {
-                    data.forEach(row => {
+                for (const vid of videoIds) {
+                    const response = await fetch(`/video_data/${vid}?date=${date}`);
+                    const result = await response.json();
+
+                    if (!result.success) {
+                        error.textContent = result.message;
+                        error.classList.remove("hidden");
+                        continue;
+                    }
+
+                    let prevViews = null;
+                    result.data.forEach(row => {
+                        const viewGain = prevViews !== null ? row.view_count - prevViews : 0;
+                        totals[vid] = (totals[vid] || 0) + viewGain;
+                        prevViews = row.view_count;
+
                         const tr = document.createElement("tr");
                         tr.innerHTML = `
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.video_id}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.timestamp}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${vid}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${new Date(row.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_count}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_gain}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${viewGain}</td>
                         `;
                         tbody.appendChild(tr);
                     });
+                }
 
-                    // Add totals to footer
-                    if (Object.keys(totals).length > 0) {
-                        Object.keys(totals).forEach(video_id => {
-                            const tr = document.createElement("tr");
-                            tr.innerHTML = `
-                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${video_id}</td>
-                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900" colspan="2">Total Views Gained</td>
-                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${totals[video_id]}</td>
-                            `;
-                            tfoot.appendChild(tr);
-                        });
-                    }
+                if (Object.keys(totals).length > 0) {
+                    Object.keys(totals).forEach(video_id => {
+                        const tr = document.createElement("tr");
+                        tr.innerHTML = `
+                            <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${video_id}</td>
+                            <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900" colspan="2">Total Views Gained</td>
+                            <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${totals[video_id]}</td>
+                        `;
+                        tfoot.appendChild(tr);
+                    });
+                } else {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" colspan="4">No data available for the selected date and video.</td>`;
+                    tbody.appendChild(tr);
                 }
             } catch (err) {
                 error.textContent = `Error: ${err.message}`;
@@ -262,13 +237,13 @@
             fetchViews(document.getElementById("datePicker").value, e.target.value);
         });
 
-        // Refresh data every minute for the current date
+        // Refresh data every 5 minutes for the current date
         setInterval(() => {
             const selectedDate = document.getElementById("datePicker").value;
             if (selectedDate === today) {
                 fetchViews(selectedDate, document.getElementById("videoFilter").value);
             }
-        }, 60000);
+        }, 300000); // 5 minutes
     </script>
 </body>
 </html>
