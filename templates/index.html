@@ -3,247 +3,744 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Views Analysis</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>YouTube View Tracker</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+
+        .add-video-form {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .input-group {
+            flex: 1;
+            min-width: 300px;
+            position: relative;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 15px 50px 15px 20px;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .input-group .input-icon {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #666;
+        }
+
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #666;
+            border: 2px solid #e1e5e9;
+        }
+
+        .btn-secondary:hover {
+            background: #e9ecef;
+            border-color: #667eea;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+            transform: translateY(-1px);
+        }
+
+        .btn-sm {
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .video-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .video-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+
+        .video-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .video-thumbnail {
+            width: 120px;
+            height: 90px;
+            border-radius: 12px;
+            object-fit: cover;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .video-info h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+            line-height: 1.4;
+            color: #333;
+        }
+
+        .video-info p {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .video-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .stat-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #333;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .positive {
+            color: #28a745 !important;
+        }
+
+        .negative {
+            color: #dc3545 !important;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 15px;
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+        }
+
+        .video-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            color: white;
+        }
+
+        .loading i {
+            font-size: 2rem;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: white;
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            opacity: 0.7;
+        }
+
+        .empty-state h2 {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+
+        .empty-state p {
+            font-size: 1.1rem;
+            opacity: 0.8;
+        }
+
+        .refresh-info {
+            text-align: center;
+            color: white;
+            margin-bottom: 20px;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .add-video-form {
+                flex-direction: column;
+            }
+
+            .input-group {
+                min-width: auto;
+            }
+
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            .video-stats {
+                grid-template-columns: 1fr;
+            }
+
+            .video-header {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-4xl">
-        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">YouTube Video Hour to Hour Views (24/7)</h1>
-        
-        <!-- Form to add Video ID -->
-        <div class="mb-6">
-            <h2 class="text-lg font-semibold text-gray-700 mb-2">Add Video ID</h2>
-            <form id="videoForm" class="space-y-4">
-                <div>
-                    <label for="videoId" class="block text-sm font-medium text-gray-700">Video ID:</label>
-                    <input type="text" id="videoId" name="video_id" class="mt-1 block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Enter YouTube Video ID (e.g., dQw4w9WgXcQ)" required>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fab fa-youtube"></i> YouTube View Tracker</h1>
+            <p>Monitor your YouTube video performance in real-time</p>
+        </div>
+
+        <div class="controls">
+            <div class="add-video-form">
+                <div class="input-group">
+                    <input type="text" id="videoInput" placeholder="Enter YouTube video URL or ID">
+                    <i class="fas fa-link input-icon"></i>
                 </div>
-                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500" aria-label="Add YouTube video ID">Add Video</button>
-            </form>
-            <p id="videoMessage" class="mt-2 text-sm hidden" aria-live="polite"></p>
-            <div class="mt-4">
-                <h3 class="text-sm font-medium text-gray-700">Current Video IDs:</h3>
-                <ul id="videoList" class="list-disc list-inside text-sm text-gray-600">
-                    {% for video_id in video_ids %}
-                        <li class="flex items-center" data-video-id="{{ video_id }}">
-                            <span class="video-id">{{ video_id }}</span>
-                            <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="{{ video_id }}" aria-label="Remove video ID {{ video_id }}">Remove</button>
-                        </li>
-                    {% endfor %}
-                </ul>
+                <button class="btn btn-primary" onclick="addVideo()">
+                    <i class="fas fa-plus"></i> Add Video
+                </button>
+                <button class="btn btn-secondary" onclick="refreshData()">
+                    <i class="fas fa-sync-alt"></i> Refresh All
+                </button>
+            </div>
+
+            <div class="alert alert-success" id="successAlert">
+                <i class="fas fa-check-circle"></i>
+                <span id="successMessage"></span>
+            </div>
+
+            <div class="alert alert-error" id="errorAlert">
+                <i class="fas fa-exclamation-circle"></i>
+                <span id="errorMessage"></span>
             </div>
         </div>
 
-        <!-- Filters and Table -->
-        <div class="mb-6">
-            <h2 class="text-lg font-semibold text-gray-700 mb-2">View Data</h2>
-            <div class="flex flex-col sm:flex-row sm:space-x-4 mb-4">
-                <div>
-                    <label for="datePicker" class="block text-sm font-medium text-gray-700">Select Date:</label>
-                    <input type="date" id="datePicker" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                </div>
-                <div>
-                    <label for="videoFilter" class="block text-sm font-medium text-gray-700">Select Video:</label>
-                    <select id="videoFilter" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                        <option value="all">All Videos</option>
-                        {% for video_id in video_ids %}
-                            <option value="{{ video_id }}">{{ video_id }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-            </div>
-            <p id="error" class="text-sm text-red-500 hidden" aria-live="polite"></p>
-            <p id="loading" class="text-sm text-gray-500 hidden">Loading...</p>
-            <div class="overflow-x-auto">
-                <table id="viewsTable" class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video ID</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Count</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Gain</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200"></tbody>
-                    <tfoot class="bg-gray-50"></tfoot>
-                </table>
-            </div>
+        <div class="refresh-info">
+            <i class="fas fa-info-circle"></i>
+            Data updates automatically every 30 minutes
+        </div>
+
+        <div class="loading" id="loading">
+            <i class="fas fa-spinner"></i>
+            <p>Loading data...</p>
+        </div>
+
+        <div class="dashboard" id="dashboard">
+        </div>
+
+        <div class="empty-state" id="emptyState" style="display: none;">
+            <i class="fas fa-video"></i>
+            <h2>No Videos Added Yet</h2>
+            <p>Add your first YouTube video to start tracking its performance</p>
         </div>
     </div>
 
     <script>
-        // Validate YouTube video ID
-        function isValidYouTubeVideoId(id) {
-            return /^[a-zA-Z0-9_-]{11}$/.test(id);
+        let charts = {};
+
+        function showAlert(type, message) {
+            const alertElement = document.getElementById(type === 'success' ? 'successAlert' : 'errorAlert');
+            const messageElement = document.getElementById(type === 'success' ? 'successMessage' : 'errorMessage');
+            
+            messageElement.textContent = message;
+            alertElement.style.display = 'flex';
+            
+            setTimeout(() => {
+                alertElement.style.display = 'none';
+            }, 5000);
         }
 
-        // Handle form submission for adding video ID
-        document.getElementById('videoForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const videoId = document.getElementById('videoId').value;
-            const message = document.getElementById('videoMessage');
-            const videoList = document.getElementById('videoList');
-            const videoFilter = document.getElementById('videoFilter');
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return num.toLocaleString();
+        }
 
-            if (!isValidYouTubeVideoId(videoId)) {
-                message.textContent = 'Invalid YouTube video ID. Must be 11 characters (letters, numbers, -, _).';
-                message.classList.remove('hidden', 'text-green-500');
-                message.classList.add('text-red-500');
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+
+        async function addVideo() {
+            const videoInput = document.getElementById('videoInput');
+            const videoId = videoInput.value.trim();
+            
+            if (!videoId) {
+                showAlert('error', 'Please enter a video URL or ID');
                 return;
             }
 
             try {
                 const response = await fetch('/add_video', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({ video_id: videoId })
                 });
-                const result = await response.json();
-                message.textContent = result.message;
-                message.classList.remove('hidden');
-                message.classList.add(result.success ? 'text-green-500' : 'text-red-500');
 
-                if (result.success) {
-                    const li = document.createElement('li');
-                    li.className = 'flex items-center';
-                    li.dataset.videoId = videoId;
-                    li.innerHTML = `<span class="video-id">${videoId}</span><button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="${videoId}" aria-label="Remove video ID ${videoId}">Remove</button>`;
-                    videoList.appendChild(li);
+                const data = await response.json();
 
-                    const option = document.createElement('option');
-                    option.value = videoId;
-                    option.textContent = videoId;
-                    videoFilter.appendChild(option);
-
-                    document.getElementById('videoId').value = '';
-                    fetchViews(document.getElementById('datePicker').value, videoFilter.value);
+                if (data.success) {
+                    showAlert('success', data.message);
+                    videoInput.value = '';
+                    setTimeout(() => loadDashboard(), 1000);
+                } else {
+                    showAlert('error', data.message);
                 }
             } catch (error) {
-                message.textContent = 'Error communicating with server';
-                message.classList.remove('hidden', 'text-green-500');
-                message.classList.add('text-red-500');
-            }
-        });
-
-        // Handle remove button clicks
-        document.getElementById('videoList').addEventListener('click', async (e) => {
-            if (e.target.classList.contains('remove-video')) {
-                const videoId = e.target.dataset.videoId;
-                const message = document.getElementById('videoMessage');
-                const videoFilter = document.getElementById('videoFilter');
-                try {
-                    const response = await fetch(`/remove_video/${videoId}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    const result = await response.json();
-                    message.textContent = result.message;
-                    message.classList.remove('hidden');
-                    message.classList.add(result.success ? 'text-green-500' : 'text-red-500');
-
-                    if (result.success) {
-                        const li = document.querySelector(`li[data-video-id="${videoId}"]`);
-                        if (li) li.remove();
-                        const option = videoFilter.querySelector(`option[value="${videoId}"]`);
-                        if (option) option.remove();
-                        fetchViews(document.getElementById('datePicker').value, videoFilter.value);
-                    }
-                } catch (error) {
-                    message.textContent = 'Error communicating with server';
-                    message.classList.remove('hidden', 'text-green-500');
-                    message.classList.add('text-red-500');
-                }
-            }
-        });
-
-        // Fetch and display view data
-        async function fetchViews(date, videoId) {
-            const tbody = document.querySelector("#viewsTable tbody");
-            const tfoot = document.querySelector("#viewsTable tfoot");
-            const error = document.getElementById("error");
-            const loading = document.getElementById("loading");
-            tbody.innerHTML = "";
-            tfoot.innerHTML = "";
-            error.classList.add("hidden");
-            loading.classList.remove("hidden");
-
-            try {
-                const videoIds = videoId === "all" ? [{% for video_id in video_ids %}"{{ video_id }}",{% endfor %}] : [videoId];
-                const totals = {};
-
-                for (const vid of videoIds) {
-                    const response = await fetch(`/video_data/${vid}?date=${date}`);
-                    const result = await response.json();
-
-                    if (!result.success) {
-                        error.textContent = result.message;
-                        error.classList.remove("hidden");
-                        continue;
-                    }
-
-                    let prevViews = null;
-                    result.data.forEach(row => {
-                        const viewGain = prevViews !== null ? row.view_count - prevViews : 0;
-                        totals[vid] = (totals[vid] || 0) + viewGain;
-                        prevViews = row.view_count;
-
-                        const tr = document.createElement("tr");
-                        tr.innerHTML = `
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${vid}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${new Date(row.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_count}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${viewGain}</td>
-                        `;
-                        tbody.appendChild(tr);
-                    });
-                }
-
-                if (Object.keys(totals).length > 0) {
-                    Object.keys(totals).forEach(video_id => {
-                        const tr = document.createElement("tr");
-                        tr.innerHTML = `
-                            <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${video_id}</td>
-                            <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900" colspan="2">Total Views Gained</td>
-                            <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${totals[video_id]}</td>
-                        `;
-                        tfoot.appendChild(tr);
-                    });
-                } else {
-                    const tr = document.createElement("tr");
-                    tr.innerHTML = `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" colspan="4">No data available for the selected date and video.</td>`;
-                    tbody.appendChild(tr);
-                }
-            } catch (err) {
-                error.textContent = `Error: ${err.message}`;
-                error.classList.remove("hidden");
-            } finally {
-                loading.classList.add("hidden");
+                showAlert('error', 'Error removing video: ' + error.message);
             }
         }
 
-        // Set default date to today (IST)
-        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-        document.getElementById("datePicker").value = today;
+        async function refreshData() {
+            try {
+                const response = await fetch('/trigger_update', {
+                    method: 'POST'
+                });
 
-        // Fetch data initially
-        fetchViews(today, document.getElementById("videoFilter").value);
+                const data = await response.json();
 
-        // Update data when date or video filter changes
-        document.getElementById("datePicker").addEventListener("change", (e) => {
-            fetchViews(e.target.value, document.getElementById("videoFilter").value);
-        });
-
-        document.getElementById("videoFilter").addEventListener("change", (e) => {
-            fetchViews(document.getElementById("datePicker").value, e.target.value);
-        });
-
-        // Refresh data every 5 minutes for the current date
-        setInterval(() => {
-            const selectedDate = document.getElementById("datePicker").value;
-            if (selectedDate === today) {
-                fetchViews(selectedDate, document.getElementById("videoFilter").value);
+                if (data.success) {
+                    showAlert('success', data.message);
+                    setTimeout(() => loadDashboard(), 2000);
+                } else {
+                    showAlert('error', data.message);
+                }
+            } catch (error) {
+                showAlert('error', 'Error refreshing data: ' + error.message);
             }
-        }, 300000); // 5 minutes
-    </script>
-</body>
-</html>
+        }
+
+        async function loadDashboard() {
+            const loading = document.getElementById('loading');
+            const dashboard = document.getElementById('dashboard');
+            const emptyState = document.getElementById('emptyState');
+
+            loading.style.display = 'block';
+            dashboard.innerHTML = '';
+            emptyState.style.display = 'none';
+
+            try {
+                const response = await fetch('/dashboard_data');
+                const data = await response.json();
+
+                loading.style.display = 'none';
+
+                if (data.success && data.data.length > 0) {
+                    dashboard.innerHTML = '';
+                    
+                    for (const video of data.data) {
+                        await createVideoCard(video);
+                    }
+                } else {
+                    emptyState.style.display = 'block';
+                }
+            } catch (error) {
+                loading.style.display = 'none';
+                showAlert('error', 'Error loading dashboard: ' + error.message);
+            }
+        }
+
+        async function createVideoCard(video) {
+            const dashboard = document.getElementById('dashboard');
+            
+            const cardElement = document.createElement('div');
+            cardElement.className = 'video-card fade-in';
+            cardElement.innerHTML = `
+                <div class="video-header">
+                    <img src="${video.thumbnail_url || '/static/default-thumbnail.jpg'}" 
+                         alt="Video thumbnail" 
+                         class="video-thumbnail"
+                         onerror="this.src='/static/default-thumbnail.jpg'">
+                    <div class="video-info">
+                        <h3>${video.title || 'Unknown Title'}</h3>
+                        <p><i class="fas fa-user"></i> ${video.channel_title || 'Unknown Channel'}</p>
+                        <p><i class="fas fa-clock"></i> Last updated: ${formatDate(video.last_updated)}</p>
+                    </div>
+                </div>
+                
+                <div class="video-stats">
+                    <div class="stat-item">
+                        <span class="stat-value">${formatNumber(video.current_views)}</span>
+                        <div class="stat-label">Total Views</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value ${video.latest_gain >= 0 ? 'positive' : 'negative'}">
+                            ${video.latest_gain >= 0 ? '+' : ''}${formatNumber(video.latest_gain)}
+                        </span>
+                        <div class="stat-label">Latest Gain</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value ${video.daily_gain >= 0 ? 'positive' : 'negative'}">
+                            ${video.daily_gain >= 0 ? '+' : ''}${formatNumber(video.daily_gain)}
+                        </span>
+                        <div class="stat-label">24h Gain</div>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="chart-${video.video_id}"></canvas>
+                </div>
+                
+                <div class="video-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="viewDetails('${video.video_id}')">
+                        <i class="fas fa-chart-line"></i> Details
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="removeVideo('${video.video_id}')">
+                        <i class="fas fa-trash"></i> Remove
+                    </button>
+                </div>
+            `;
+            
+            dashboard.appendChild(cardElement);
+            
+            // Load chart data
+            await loadVideoChart(video.video_id);
+        }
+
+        async function loadVideoChart(videoId) {
+            try {
+                const response = await fetch(`/video_data/${videoId}`);
+                const data = await response.json();
+
+                if (data.success && data.data.length > 0) {
+                    createChart(videoId, data.data);
+                }
+            } catch (error) {
+                console.error('Error loading chart data:', error);
+            }
+        }
+
+        function createChart(videoId, data) {
+            const ctx = document.getElementById(`chart-${videoId}`);
+            if (!ctx) return;
+
+            // Destroy existing chart if it exists
+            if (charts[videoId]) {
+                charts[videoId].destroy();
+            }
+
+            const labels = data.map(item => {
+                const date = new Date(item.timestamp);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            });
+
+            const viewCounts = data.map(item => item.view_count);
+            const viewGains = data.map(item => item.view_gain);
+
+            charts[videoId] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Total Views',
+                            data: viewCounts,
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'View Gain',
+                            data: viewGains,
+                            borderColor: '#28a745',
+                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                            tension: 0.4,
+                            fill: false,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += formatNumber(context.parsed.y);
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            },
+                            ticks: {
+                                maxTicksLimit: 6
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Total Views'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return formatNumber(value);
+                                }
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'View Gain'
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return formatNumber(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function viewDetails(videoId) {
+            // Create modal or navigate to detailed view
+            window.open(`https://youtube.com/watch?v=${videoId}`, '_blank');
+        }
+
+        // Event listeners
+        document.getElementById('videoInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                addVideo();
+            }
+        });
+
+        // Auto-refresh every 5 minutes
+        setInterval(() => {
+            loadDashboard();
+        }, 300000);
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDashboard();
+        });('error', 'Error adding video: ' + error.message);
+            }
+        }
+
+        async function removeVideo(videoId) {
+            if (!confirm('Are you sure you want to remove this video from tracking?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/remove_video/${videoId}`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('success', data.message);
+                    loadDashboard();
+                } else {
+                    showAlert('error', data.message);
+                }
+            } catch (error) {
+                showAlert
