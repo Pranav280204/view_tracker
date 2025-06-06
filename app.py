@@ -69,7 +69,7 @@ def store_views(video_id, views):
     finally:
         conn.close()
 
-# Background task to fetch views every minute
+# Background task to fetch views every hour
 def fetch_views_periodically():
     pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
     default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
@@ -90,7 +90,7 @@ def fetch_views_periodically():
                     store_views(video_id, views)
         except Exception as e:
             logger.error(f"Background task error: {e}")
-        time.sleep(60)  # Wait 1 minute
+        time.sleep(3600)  # Wait 1 hour
 
 # Start background task
 def start_background_task():
@@ -136,18 +136,18 @@ def index():
         joshi_data = c.fetchall()
         conn.close()
 
-        # Prepare comparison data
+        # Prepare comparison data (aggregate by hour)
         comparison = []
         for i, (pathaan_time, pathaan_views) in enumerate(pathaan_data):
-            pathaan_minute = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
+            pathaan_hour = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
             joshi_views = 0
             for joshi_time, views in joshi_data:
-                joshi_minute = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
-                if joshi_minute == pathaan_minute:
+                joshi_hour = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
+                if joshi_hour == pathaan_hour:
                     joshi_views = views
                     break
             comparison.append({
-                "minute": pathaan_minute.strftime("%Y-%m-%d %H:%M"),
+                "hour": pathaan_hour.strftime("%Y-%m-%d %H:00"),
                 "pathaan_views": pathaan_views,
                 "joshi_views": joshi_views,
                 "pathaan_gain": pathaan_views - (pathaan_data[i-1][1] if i > 0 else pathaan_views),
@@ -196,10 +196,9 @@ def export():
         logger.error(f"Error in export route: {e}", exc_info=True)
         return "Error exporting data", 500
 
-# Initialize database at app startup
+# Initialize database and start background task at app startup
 init_db()
 start_background_task()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    
