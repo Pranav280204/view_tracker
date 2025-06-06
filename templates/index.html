@@ -20,11 +20,11 @@
                 Track Video
             </button>
         </form>
-        <h2 class="text-xl font-semibold mb-4">Per-Minute Views Comparison</h2>
+        <h2 class="text-xl font-semibold mb-4">Per-Hour Views Comparison</h2>
         <table class="w-full border-collapse border border-gray-300">
             <thead>
                 <tr class="bg-gray-200">
-                    <th class="border border-gray-300 p-2">Minute</th>
+                    <th class="border border-gray-300 p-2">Hour</th>
                     <th class="border border-gray-300 p-2">Jhoome Jo Pathaan Views</th>
                     <th class="border border-gray-300 p-2">Jhoome Jo Pathaan Gain</th>
                     <th class="border border-gray-300 p-2">Sourav Joshi (or other) Views</th>
@@ -34,7 +34,7 @@
             <tbody>
                 {% for row in comparison %}
                 <tr>
-                    <td class="border border-gray-300 p-2">{{ row.minute }}</td>
+                    <td class="border border-gray-300 p-2">{{ row.hour }}</td>
                     <td class="border border-gray-300 p-2">{{ row.pathaan_views }}</td>
                     <td class="border border-gray-300 p-2">{{ row.pathaan_gain }}</td>
                     <td class="border border-gray-300 p-2">{{ row.joshi_views }}</td>
@@ -43,9 +43,14 @@
                 {% endfor %}
             </tbody>
         </table>
-        <a href="/export" class="mt-4 inline-block bg-green-500 text-white p-2 rounded-md hover:bg-green-600">
-            Export to Excel
-        </a>
+        <div class="mt-4 flex space-x-4">
+            <a href="/export" class="bg-green-500 text-white p-2 rounded-md hover:bg-green-600">
+                Download Latest Hourly Excel
+            </a>
+            <a href="/export" class="bg-gray-500 text-white p-2 rounded-md hover:bg-gray-600">
+                Generate and Download Excel Now
+            </a>
+        </div>
     </div>
 </body>
 </html>
