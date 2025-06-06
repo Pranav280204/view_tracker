@@ -201,13 +201,17 @@ def remove_video():
     else:
         return jsonify({"status": "error", "message": "Video ID not found"}), 400
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 # Scheduler setup
 scheduler = BackgroundScheduler()
 scheduler.add_job(
     fetch_and_store_views,
-    trigger=CronTrigger(minute="*/5", timezone="Asia/Kolkata")  # Every hour, 24/7
+    trigger=CronTrigger(minute=0, timezone="Asia/Kolkata")  # Every hour at minute 0 (e.g., 1:00, 2:00, etc.)
 )
 scheduler.start()
+
 
 if __name__ == "__main__":
     app.run(debug=True)
