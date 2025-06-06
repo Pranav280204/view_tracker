@@ -11,7 +11,7 @@ from googleapiclient.errors import HttpError
 app = Flask(__name__)
 
 # YouTube API setup
-API_KEY = os.getenv("YOUTUBE_API_KEY")  # Set this in Render environment variables
+API_KEY = os.getenv("YOUTUBE_API_KEY")  # Set in Render environment variables
 youtube = build("youtube", "v3", developerKey=API_KEY)
 
 # SQLite database setup
@@ -26,16 +26,18 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Fetch views for a video
-def fetch_views(video_id):
+# Fetch views for multiple video IDs
+def fetch_views(video_ids):
     try:
-        response = youtube.videos().list(part="statistics", id=video_id).execute()
-        if response["items"]:
-            return int(response["items"][0]["statistics"]["viewCount"])
-        return 0
+        response = youtube.videos().list(part="statistics", id=",".join(video_ids)).execute()
+        views = {}
+        for item in response.get("items", []):
+            video_id = item["id"]
+            views[video_id] = int(item["statistics"]["viewCount"])
+        return views
     except HttpError as e:
-        print(f"Error fetching views for {video_id}: {e}")
-        return 0
+        print(f"Error fetching views: {e}")
+        return {}
 
 # Store views in database
 def store_views(video_id, views):
@@ -47,26 +49,29 @@ def store_views(video_id, views):
     conn.commit()
     conn.close()
 
-# Background task to fetch views hourly
+# Background task to fetch views every minute
 def fetch_views_periodically():
-    fixed_video_id = "YxWlaYCA8MU"
+    pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
+    default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
     while True:
-        # Fetch and store views for fixed video
-        views = fetch_views(fixed_video_id)
-        if views:
-            store_views(fixed_video_id, views)
-        # Fetch and store views for the last changeable video
+        # Get the latest changeable video ID from the database
         conn = sqlite3.connect("views.db")
         c = conn.cursor()
-        c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (fixed_video_id,))
+        c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
         result = c.fetchone()
+        changeable_video_id = result[0] if result else default_joshi_video_id
         conn.close()
-        if result:
-            changeable_video_id = result[0]
-            views = fetch_views(changeable_video_id)
+
+        # Fetch views for both videos in one API call
+        video_ids = [pathaan_video_id, changeable_video_id]
+        views_dict = fetch_views(video_ids)
+        
+        # Store views
+        for video_id, views in views_dict.items():
             if views:
-                store_views(changeable_video_id, views)
-        time.sleep(3600)  # Wait 1 hour
+                store_views(video_id, views)
+        
+        time.sleep(60)  # Wait 1 minute
 
 # Start background task
 def start_background_task():
@@ -76,52 +81,51 @@ def start_background_task():
 # Route for home page
 @app.route("/", methods=["GET", "POST"])
 def index():
+    pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
     changeable_video_id = None
+    default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
+
     if request.method == "POST":
         changeable_video_id = request.form.get("video_id")
         if changeable_video_id:
-            views = fetch_views(changeable_video_id)
-            if views:
-                store_views(changeable_video_id, views)
+            views = fetch_views([changeable_video_id])
+            if changeable_video_id in views and views[changeable_video_id]:
+                store_views(changeable_video_id, views[changeable_video_id])
 
     # Fetch data from database
     conn = sqlite3.connect("views.db")
     c = conn.cursor()
-    fixed_video_id = "YxWlaYCA8MU"
     
-    # Get hourly views for fixed video
-    c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (fixed_video_id,))
-    fixed_data = c.fetchall()
+    # Get views for Jhoome Jo Pathaan
+    c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (pathaan_video_id,))
+    pathaan_data = c.fetchall()
     
-    # Get hourly views for changeable video (latest one if not specified)
+    # Get views for changeable video (latest or default)
     if not changeable_video_id:
-        c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (fixed_video_id,))
+        c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
         result = c.fetchone()
-        changeable_video_id = result[0] if result else None
+        changeable_video_id = result[0] if result else default_joshi_video_id
     
-    changeable_data = []
-    if changeable_video_id:
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (changeable_video_id,))
-        changeable_data = c.fetchall()
-    
+    c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (changeable_video_id,))
+    joshi_data = c.fetchall()
     conn.close()
 
     # Prepare comparison data
     comparison = []
-    for i, (fixed_time, fixed_views) in enumerate(fixed_data):
-        fixed_hour = datetime.strptime(fixed_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
-        change_views = 0
-        for change_time, views in changeable_data:
-            change_hour = datetime.strptime(change_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
-            if change_hour == fixed_hour:
-                change_views = views
+    for i, (pathaan_time, pathaan_views) in enumerate(pathaan_data):
+        pathaan_minute = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
+        joshi_views = 0
+        for joshi_time, views in joshi_data:
+            joshi_minute = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
+            if joshi_minute == pathaan_minute:
+                joshi_views = views
                 break
         comparison.append({
-            "hour": fixed_hour.strftime("%Y-%m-%d %H:00"),
-            "fixed_views": fixed_views,
-            "changeable_views": change_views,
-            "fixed_diff": fixed_views - (fixed_data[i-1][1] if i > 0 else 0),
-            "changeable_diff": change_views - (changeable_data[i-1][1] if i > 0 and change_views else 0)
+            "minute": pathaan_minute.strftime("%Y-%m-%d %H:%M"),
+            "pathaan_views": pathaan_views,
+            "joshi_views": joshi_views,
+            "pathaan_gain": pathaan_views - (pathaan_data[i-1][1] if i > 0 else pathaan_views),
+            "joshi_gain": joshi_views - (joshi_data[i-1][1] if i > 0 and joshi_views else joshi_views)
         })
 
     return render_template("index.html", comparison=comparison, changeable_video_id=changeable_video_id)
@@ -130,23 +134,18 @@ def index():
 @app.route("/export")
 def export():
     conn = sqlite3.connect("views.db")
-    fixed_video_id = "YxWlaYCA8MU"
     c = conn.cursor()
     
-    # Get latest changeable video ID
-    c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (fixed_video_id,))
-    result = c.fetchone()
-    changeable_video_id = result[0] if result else None
-    
-    # Fetch data
-    data = []
+    # Fetch all data
     c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
     rows = c.fetchall()
     conn.close()
     
+    data = []
     for row in rows:
+        video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
         data.append({
-            "Video ID": row[0],
+            "Video": video_name,
             "Timestamp": row[1],
             "Views": row[2]
         })
