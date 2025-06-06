@@ -8,6 +8,7 @@ from flask import Flask, render_template, request, send_file
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import logging
+import pytz
 
 app = Flask(__name__)
 
@@ -54,16 +55,17 @@ def fetch_views(video_ids):
         logger.error(f"Error fetching views for {video_ids}: {e}")
         return {}
 
-# Store views in database
+# Store views in database with IST timestamp
 def store_views(video_id, views):
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ist = pytz.timezone("Asia/Kolkata")
+        timestamp = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("INSERT INTO views (video_id, timestamp, views) VALUES (?, ?, ?)",
                   (video_id, timestamp, views))
         conn.commit()
-        logger.debug(f"Stored views for {video_id}: {views} at {timestamp}")
+        logger.debug(f"Stored views for {video_id}: {views} at {timestamp} IST")
     except sqlite3.Error as e:
         logger.error(f"Error storing views for {video_id}: {e}")
     finally:
@@ -138,11 +140,14 @@ def index():
 
         # Prepare comparison data (aggregate by hour)
         comparison = []
+        ist = pytz.timezone("Asia/Kolkata")
         for i, (pathaan_time, pathaan_views) in enumerate(pathaan_data):
-            pathaan_hour = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
+            pathaan_dt = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ist)
+            pathaan_hour = pathaan_dt.replace(minute=0, second=0)
             joshi_views = 0
             for joshi_time, views in joshi_data:
-                joshi_hour = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
+                joshi_dt = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ist)
+                joshi_hour = joshi_dt.replace(minute=0, second=0)
                 if joshi_hour == pathaan_hour:
                     joshi_views = views
                     break
@@ -180,7 +185,7 @@ def export():
             video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
             data.append({
                 "Video": video_name,
-                "Timestamp": row[1],
+                "Timestamp": row[1],  # Already in IST
                 "Views": row[2]
             })
         
