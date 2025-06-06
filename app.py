@@ -7,27 +7,42 @@ import pandas as pd
 from flask import Flask, render_template, request, send_file
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import logging
 
 app = Flask(__name__)
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
 # YouTube API setup
-API_KEY = os.getenv("YOUTUBE_API_KEY")  # Set in Render environment variables
-youtube = build("youtube", "v3", developerKey=API_KEY)
+API_KEY = os.getenv("YOUTUBE_API_KEY")
+if not API_KEY:
+    logger.error("YOUTUBE_API_KEY environment variable is not set")
+youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
 # SQLite database setup
 def init_db():
-    conn = sqlite3.connect("views.db")
-    c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS views (
-        video_id TEXT,
-        timestamp TEXT,
-        views INTEGER
-    )""")
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        c.execute("""CREATE TABLE IF NOT EXISTS views (
+            video_id TEXT,
+            timestamp TEXT,
+            views INTEGER
+        )""")
+        conn.commit()
+        logger.info("Database initialized successfully")
+    except sqlite3.Error as e:
+        logger.error(f"Database initialization failed: {e}")
+    finally:
+        conn.close()
 
 # Fetch views for multiple video IDs
 def fetch_views(video_ids):
+    if not youtube:
+        logger.error("YouTube API client not initialized")
+        return {}
     try:
         response = youtube.videos().list(part="statistics", id=",".join(video_ids)).execute()
         views = {}
@@ -36,41 +51,45 @@ def fetch_views(video_ids):
             views[video_id] = int(item["statistics"]["viewCount"])
         return views
     except HttpError as e:
-        print(f"Error fetching views: {e}")
+        logger.error(f"Error fetching views for {video_ids}: {e}")
         return {}
 
 # Store views in database
 def store_views(video_id, views):
-    conn = sqlite3.connect("views.db")
-    c = conn.cursor()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute("INSERT INTO views (video_id, timestamp, views) VALUES (?, ?, ?)",
-              (video_id, timestamp, views))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("INSERT INTO views (video_id, timestamp, views) VALUES (?, ?, ?)",
+                  (video_id, timestamp, views))
+        conn.commit()
+        logger.debug(f"Stored views for {video_id}: {views} at {timestamp}")
+    except sqlite3.Error as e:
+        logger.error(f"Error storing views for {video_id}: {e}")
+    finally:
+        conn.close()
 
 # Background task to fetch views every minute
 def fetch_views_periodically():
     pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
     default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
     while True:
-        # Get the latest changeable video ID from the database
-        conn = sqlite3.connect("views.db")
-        c = conn.cursor()
-        c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
-        result = c.fetchone()
-        changeable_video_id = result[0] if result else default_joshi_video_id
-        conn.close()
+        try:
+            conn = sqlite3.connect("views.db", check_same_thread=False)
+            c = conn.cursor()
+            c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
+            result = c.fetchone()
+            changeable_video_id = result[0] if result else default_joshi_video_id
+            conn.close()
 
-        # Fetch views for both videos in one API call
-        video_ids = [pathaan_video_id, changeable_video_id]
-        views_dict = fetch_views(video_ids)
-        
-        # Store views
-        for video_id, views in views_dict.items():
-            if views:
-                store_views(video_id, views)
-        
+            video_ids = [pathaan_video_id, changeable_video_id]
+            views_dict = fetch_views(video_ids)
+            
+            for video_id, views in views_dict.items():
+                if views:
+                    store_views(video_id, views)
+        except Exception as e:
+            logger.error(f"Background task error: {e}")
         time.sleep(60)  # Wait 1 minute
 
 # Start background task
@@ -82,80 +101,90 @@ def start_background_task():
 @app.route("/", methods=["GET", "POST"])
 def index():
     pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
-    changeable_video_id = None
     default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
+    error_message = None
 
-    if request.method == "POST":
-        changeable_video_id = request.form.get("video_id")
-        if changeable_video_id:
-            views = fetch_views([changeable_video_id])
-            if changeable_video_id in views and views[changeable_video_id]:
-                store_views(changeable_video_id, views[changeable_video_id])
+    try:
+        changeable_video_id = None
+        if request.method == "POST":
+            changeable_video_id = request.form.get("video_id")
+            if changeable_video_id:
+                views = fetch_views([changeable_video_id])
+                if changeable_video_id in views and views[changeable_video_id]:
+                    store_views(changeable_video_id, views[changeable_video_id])
+                else:
+                    error_message = "Invalid video ID or no view data available"
 
-    # Fetch data from database
-    conn = sqlite3.connect("views.db")
-    c = conn.cursor()
+        # Fetch data from database
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        
+        # Get views for Jhoome Jo Pathaan
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (pathaan_video_id,))
+        pathaan_data = c.fetchall()
+        
+        # Get views for changeable video
+        if not changeable_video_id:
+            c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
+            result = c.fetchone()
+            changeable_video_id = result[0] if result else default_joshi_video_id
+        
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (changeable_video_id,))
+        joshi_data = c.fetchall()
+        conn.close()
+
+        # Prepare comparison data
+        comparison = []
+        for i, (pathaan_time, pathaan_views) in enumerate(pathaan_data):
+            pathaan_minute = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
+            joshi_views = 0
+            for joshi_time, views in joshi_data:
+                joshi_minute = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
+                if joshi_minute == pathaan_minute:
+                    joshi_views = views
+                    break
+            comparison.append({
+                "minute": pathaan_minute.strftime("%Y-%m-%d %H:%M"),
+                "pathaan_views": pathaan_views,
+                "joshi_views": joshi_views,
+                "pathaan_gain": pathaan_views - (pathaan_data[i-1][1] if i > 0 else pathaan_views),
+                "joshi_gain": joshi_views - (joshi_data[i-1][1] if i > 0 and joshi_views else joshi_views)
+            })
+
+        return render_template("index.html", comparison=comparison, changeable_video_id=changeable_video_id, error_message=error_message)
     
-    # Get views for Jhoome Jo Pathaan
-    c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (pathaan_video_id,))
-    pathaan_data = c.fetchall()
-    
-    # Get views for changeable video (latest or default)
-    if not changeable_video_id:
-        c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
-        result = c.fetchone()
-        changeable_video_id = result[0] if result else default_joshi_video_id
-    
-    c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (changeable_video_id,))
-    joshi_data = c.fetchall()
-    conn.close()
-
-    # Prepare comparison data
-    comparison = []
-    for i, (pathaan_time, pathaan_views) in enumerate(pathaan_data):
-        pathaan_minute = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
-        joshi_views = 0
-        for joshi_time, views in joshi_data:
-            joshi_minute = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
-            if joshi_minute == pathaan_minute:
-                joshi_views = views
-                break
-        comparison.append({
-            "minute": pathaan_minute.strftime("%Y-%m-%d %H:%M"),
-            "pathaan_views": pathaan_views,
-            "joshi_views": joshi_views,
-            "pathaan_gain": pathaan_views - (pathaan_data[i-1][1] if i > 0 else pathaan_views),
-            "joshi_gain": joshi_views - (joshi_data[i-1][1] if i > 0 and joshi_views else joshi_views)
-        })
-
-    return render_template("index.html", comparison=comparison, changeable_video_id=changeable_video_id)
+    except Exception as e:
+        logger.error(f"Error in index route: {e}", exc_info=True)
+        return render_template("index.html", comparison=[], changeable_video_id=changeable_video_id, error_message=str(e))
 
 # Route to export data to Excel
 @app.route("/export")
 def export():
-    conn = sqlite3.connect("views.db")
-    c = conn.cursor()
-    
-    # Fetch all data
-    c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
-    rows = c.fetchall()
-    conn.close()
-    
-    data = []
-    for row in rows:
-        video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
-        data.append({
-            "Video": video_name,
-            "Timestamp": row[1],
-            "Views": row[2]
-        })
-    
-    # Create DataFrame and export to Excel
-    df = pd.DataFrame(data)
-    excel_file = "youtube_views.xlsx"
-    df.to_excel(excel_file, index=False)
-    
-    return send_file(excel_file, as_attachment=True)
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        
+        c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
+        rows = c.fetchall()
+        conn.close()
+        
+        data = []
+        for row in rows:
+            video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
+            data.append({
+                "Video": video_name,
+                "Timestamp": row[1],
+                "Views": row[2]
+            })
+        
+        df = pd.DataFrame(data)
+        excel_file = "youtube_views.xlsx"
+        df.to_excel(excel_file, index=False)
+        
+        return send_file(excel_file, as_attachment=True)
+    except Exception as e:
+        logger.error(f"Error in export route: {e}", exc_info=True)
+        return "Error exporting data", 500
 
 if __name__ == "__main__":
     init_db()
