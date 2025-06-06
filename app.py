@@ -69,6 +69,33 @@ def store_views(video_id, views):
     finally:
         conn.close()
 
+# Generate Excel file
+def generate_excel_file():
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
+        rows = c.fetchall()
+        conn.close()
+        
+        data = []
+        for row in rows:
+            video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
+            data.append({
+                "Video": video_name,
+                "Timestamp": row[1],
+                "Views": row[2]
+            })
+        
+        df = pd.DataFrame(data)
+        excel_file = "/tmp/youtube_views.xlsx"
+        df.to_excel(excel_file, index=False)
+        logger.info(f"Generated Excel file at {excel_file}")
+        return excel_file
+    except Exception as e:
+        logger.error(f"Error generating Excel file: {e}")
+        return None
+
 # Background task to fetch views every minute
 def fetch_views_periodically():
     pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
@@ -92,10 +119,21 @@ def fetch_views_periodically():
             logger.error(f"Background task error: {e}")
         time.sleep(60)  # Wait 1 minute
 
-# Start background task
-def start_background_task():
-    thread = threading.Thread(target=fetch_views_periodically, daemon=True)
-    thread.start()
+# Background task to generate Excel file every hour
+def generate_excel_periodically():
+    while True:
+        try:
+            generate_excel_file()
+        except Exception as e:
+            logger.error(f"Periodic Excel generation error: {e}")
+        time.sleep(3600)  # Wait 1 hour
+
+# Start background tasks
+def start_background_tasks():
+    view_thread = threading.Thread(target=fetch_views_periodically, daemon=True)
+    excel_thread = threading.Thread(target=generate_excel_periodically, daemon=True)
+    view_thread.start()
+    excel_thread.start()
 
 # Route for home page
 @app.route("/", methods=["GET", "POST"])
@@ -168,37 +206,24 @@ def index():
 @app.route("/export")
 def export():
     try:
-        conn = sqlite3.connect("views.db", check_same_thread=False)
-        c = conn.cursor()
+        excel_file = "/tmp/youtube_views.xlsx"
+        if os.path.exists(excel_file):
+            logger.info(f"Serving pre-generated Excel file: {excel_file}")
+            return send_file(excel_file, as_attachment=True)
         
-        c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
-        rows = c.fetchall()
-        conn.close()
-        
-        data = []
-        for row in rows:
-            video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
-            data.append({
-                "Video": video_name,
-                "Timestamp": row[1],
-                "Views": row[2]
-            })
-        
-        df = pd.DataFrame(data)
-        excel_file = "youtube_views.xlsx"
-        df.to_excel(excel_file, index=False)
-        
-        return send_file(excel_file, as_attachment=True)
-    except sqlite3.Error as e:
-        logger.error(f"Database error in export route: {e}", exc_info=True)
-        return "Database error exporting data", 500
+        # Fallback to generating a new file
+        excel_file = generate_excel_file()
+        if excel_file:
+            return send_file(excel_file, as_attachment=True)
+        else:
+            return "Error generating Excel file", 500
     except Exception as e:
         logger.error(f"Error in export route: {e}", exc_info=True)
         return "Error exporting data", 500
 
-# Initialize database at app startup
+# Initialize database and start background tasks at app startup
 init_db()
-start_background_task()
+start_background_tasks()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
