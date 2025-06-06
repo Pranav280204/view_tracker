@@ -1,156 +1,164 @@
-import sqlite3
-import datetime
 import os
-import json
-from flask import Flask, jsonify, render_template, request
+import sqlite3
+import threading
+import time
+from datetime import datetime
+import pandas as pd
+from flask import Flask, render_template, request, send_file
 from googleapiclient.discovery import build
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-import pytz
+from googleapiclient.errors import HttpError
 
 app = Flask(__name__)
 
-# Configuration
-CONFIG_FILE = "config.json"
-FIXED_VIDEO_ID = "YxWlaYCA8MU"  # Jhoome Jo Pathan
-DATABASE = "video_views.db"
+# YouTube API setup
+API_KEY = os.getenv("YOUTUBE_API_KEY")  # Set this in Render environment variables
+youtube = build("youtube", "v3", developerKey=API_KEY)
 
-# Load or initialize API key and video IDs
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    else:
-        config = {
-            "API_KEY": os.getenv("API_KEY"),
-            "VIDEO_IDS": [FIXED_VIDEO_ID, os.getenv("VIDEO_ID", "")]
-        }
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(config, f)
-        return config
-
-def save_config(video_ids):
-    config = {
-        "API_KEY": API_KEY,
-        "VIDEO_IDS": video_ids
-    }
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f)
-
-# Initialize SQLite database
+# SQLite database setup
 def init_db():
-    with sqlite3.connect(DATABASE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS video_views (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                video_id TEXT,
-                view_count INTEGER,
-                timestamp DATETIME
-            )
-        """)
-        conn.commit()
+    conn = sqlite3.connect("views.db")
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS views (
+        video_id TEXT,
+        timestamp TEXT,
+        views INTEGER
+    )""")
+    conn.commit()
+    conn.close()
 
-# Fetch view count from YouTube Data API
-def fetch_view_count(video_id):
+# Fetch views for a video
+def fetch_views(video_id):
     try:
-        youtube = build("youtube", "v3", developerKey=API_KEY)
-        request = youtube.videos().list(part="statistics", id=video_id)
-        response = request.execute()
+        response = youtube.videos().list(part="statistics", id=video_id).execute()
         if response["items"]:
             return int(response["items"][0]["statistics"]["viewCount"])
         return 0
-    except Exception as e:
-        print(f"Error fetching views for video {video_id}: {e}")
-        return None
+    except HttpError as e:
+        print(f"Error fetching views for {video_id}: {e}")
+        return 0
 
-# Store view count in database
-def store_view_count(video_id, view_count):
-    with sqlite3.connect(DATABASE) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO video_views (video_id, view_count, timestamp) VALUES (?, ?, ?)",
-            (video_id, view_count, datetime.datetime.now(pytz.UTC))
-        )
-        conn.commit()
+# Store views in database
+def store_views(video_id, views):
+    conn = sqlite3.connect("views.db")
+    c = conn.cursor()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT INTO views (video_id, timestamp, views) VALUES (?, ?, ?)",
+              (video_id, timestamp, views))
+    conn.commit()
+    conn.close()
 
-# Scheduled task to fetch and store views hourly
-def fetch_and_store_views():
-    config = load_config()
-    video_ids = config["VIDEO_IDS"]
-    for video_id in video_ids:
-        if video_id:  # Skip empty video IDs
-            view_count = fetch_view_count(video_id)
-            if view_count is not None:
-                store_view_count(video_id, view_count)
-                print(f"Stored view count {view_count} for video {video_id}")
+# Background task to fetch views hourly
+def fetch_views_periodically():
+    fixed_video_id = "YxWlaYCA8MU"
+    while True:
+        # Fetch and store views for fixed video
+        views = fetch_views(fixed_video_id)
+        if views:
+            store_views(fixed_video_id, views)
+        # Fetch and store views for the last changeable video
+        conn = sqlite3.connect("views.db")
+        c = conn.cursor()
+        c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (fixed_video_id,))
+        result = c.fetchone()
+        conn.close()
+        if result:
+            changeable_video_id = result[0]
+            views = fetch_views(changeable_video_id)
+            if views:
+                store_views(changeable_video_id, views)
+        time.sleep(3600)  # Wait 1 hour
 
-# Flask route to update the second video ID
-@app.route("/update_video_id", methods=["POST"])
-def update_video_id():
-    data = request.get_json()
-    new_video_id = data.get("video_id")
-    if not new_video_id:
-        return jsonify({"error": "Video ID is required"}), 400
-    config = load_config()
-    config["VIDEO_IDS"][1] = new_video_id  # Update second video ID
-    save_config(config["VIDEO_IDS"])
-    return jsonify({"message": "Video ID updated", "video_id": new_video_id})
+# Start background task
+def start_background_task():
+    thread = threading.Thread(target=fetch_views_periodically, daemon=True)
+    thread.start()
 
-# Flask route to get hourly view comparison
-@app.route("/compare_views")
-def compare_views():
-    with sqlite3.connect(DATABASE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT video_id, view_count, timestamp
-            FROM video_views
-            WHERE video_id IN (?, ?)
-            ORDER BY timestamp DESC
-        """, (FIXED_VIDEO_ID, load_config()["VIDEO_IDS"][1]))
-        rows = cursor.fetchall()
-
-    # Process data for comparison
-    comparison_data = []
-    fixed_views = {}
-    second_views = {}
-    for row in rows:
-        video_id, view_count, timestamp = row
-        timestamp = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f%z")
-        hour_key = timestamp.strftime("%Y-%m-%d %H:00:00")  # Group by hour
-        if video_id == FIXED_VIDEO_ID:
-            fixed_views[hour_key] = view_count
-        else:
-            second_views[hour_key] = view_count
-
-    # Compare views for matching hours
-    for hour in fixed_views:
-        if hour in second_views:
-            comparison_data.append({
-                "hour": hour,
-                "fixed_video_views": fixed_views[hour],
-                "second_video_views": second_views.get(hour, 0),
-                "difference": fixed_views[hour] - second_views.get(hour, 0)
-            })
-
-    return jsonify(comparison_data)
-
-# Flask route to render comparison page
-@app.route("/")
+# Route for home page
+@app.route("/", methods=["GET", "POST"])
 def index():
-    return render_template("index.html")  # Create an HTML template for visualization
+    changeable_video_id = None
+    if request.method == "POST":
+        changeable_video_id = request.form.get("video_id")
+        if changeable_video_id:
+            views = fetch_views(changeable_video_id)
+            if views:
+                store_views(changeable_video_id, views)
 
-# Initialize configuration and database
-API_KEY = load_config()["API_KEY"]
-init_db()
+    # Fetch data from database
+    conn = sqlite3.connect("views.db")
+    c = conn.cursor()
+    fixed_video_id = "YxWlaYCA8MU"
+    
+    # Get hourly views for fixed video
+    c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (fixed_video_id,))
+    fixed_data = c.fetchall()
+    
+    # Get hourly views for changeable video (latest one if not specified)
+    if not changeable_video_id:
+        c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (fixed_video_id,))
+        result = c.fetchone()
+        changeable_video_id = result[0] if result else None
+    
+    changeable_data = []
+    if changeable_video_id:
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (changeable_video_id,))
+        changeable_data = c.fetchall()
+    
+    conn.close()
 
-# Set up scheduler
-scheduler = BackgroundScheduler()
-scheduler.add_job(
-    fetch_and_store_views,
-    trigger=CronTrigger(hour="*", minute=0, second=0, timezone=pytz.UTC)
-)
-scheduler.start()
+    # Prepare comparison data
+    comparison = []
+    for i, (fixed_time, fixed_views) in enumerate(fixed_data):
+        fixed_hour = datetime.strptime(fixed_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
+        change_views = 0
+        for change_time, views in changeable_data:
+            change_hour = datetime.strptime(change_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
+            if change_hour == fixed_hour:
+                change_views = views
+                break
+        comparison.append({
+            "hour": fixed_hour.strftime("%Y-%m-%d %H:00"),
+            "fixed_views": fixed_views,
+            "changeable_views": change_views,
+            "fixed_diff": fixed_views - (fixed_data[i-1][1] if i > 0 else 0),
+            "changeable_diff": change_views - (changeable_data[i-1][1] if i > 0 and change_views else 0)
+        })
+
+    return render_template("index.html", comparison=comparison, changeable_video_id=changeable_video_id)
+
+# Route to export data to Excel
+@app.route("/export")
+def export():
+    conn = sqlite3.connect("views.db")
+    fixed_video_id = "YxWlaYCA8MU"
+    c = conn.cursor()
+    
+    # Get latest changeable video ID
+    c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (fixed_video_id,))
+    result = c.fetchone()
+    changeable_video_id = result[0] if result else None
+    
+    # Fetch data
+    data = []
+    c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
+    rows = c.fetchall()
+    conn.close()
+    
+    for row in rows:
+        data.append({
+            "Video ID": row[0],
+            "Timestamp": row[1],
+            "Views": row[2]
+        })
+    
+    # Create DataFrame and export to Excel
+    df = pd.DataFrame(data)
+    excel_file = "youtube_views.xlsx"
+    df.to_excel(excel_file, index=False)
+    
+    return send_file(excel_file, as_attachment=True)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    init_db()
+    start_background_task()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
