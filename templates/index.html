@@ -1,296 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Views Analysis</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>YouTube Video Views Comparison</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
-<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-4xl">
-        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">YouTube Video Views (24/7)</h1>
-        
-        <!-- Form to add Video Link -->
-        <div class="mb-6">
-            <h2 class="text-lg font-semibold text-gray-700 mb-2">Add Video</h2>
-            <form id="videoForm" class="space-y-4">
-                <div>
-                    <label for="videoLink" class="block text-sm font-medium text-gray-700">Video Link:</label>
-                    <input type="text" id="videoLink" name="video_id" class="mt-1 block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Enter YouTube Video Link (e.g., https://youtu.be/dQw4w9WgXcQ)" required>
-                </div>
-                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">Add Video</button>
-            </form>
-            <p id="videoMessage" class="mt-2 text-sm hidden"></p>
-            <div class="mt-4">
-                <h3 class="text-sm font-medium text-gray-700">Current Videos:</h3>
-                <ul id="videoList" class="list-disc list-inside text-sm text-gray-600">
-                    {% for video_id in video_ids %}
-                        <li class="flex items-center">
-                            <span class="video-id" data-video-id="{{ video_id }}">{{ video_id }}</span>
-                            <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="{{ video_id }}">Remove</button>
-                        </li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
-
-        <!-- Date Picker and Video Filter -->
-        <div class="mb-4 flex space-x-4">
-            <div>
-                <label for="datePicker" class="block text-sm font-medium text-gray-700">Select Date:</label>
-                <input type="date" id="datePicker" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" value="">
-            </div>
-            <div>
-                <label for="videoFilter" class="block text-sm font-medium text-gray-700">Select Video:</label>
-                <select id="videoFilter" class="mt-1 block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                    <option value="">All Videos</option>
-                    {% for video_id in video_ids %}
-                        <option value="{{ video_id }}">{{ video_id }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-        </div>
-
-        <!-- Data Table -->
-        <div class="overflow-x-auto">
-            <table id="viewsTable" class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp (IST)</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Count</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">View Gain</th>
-                    </tr>
-                </thead>
-                <tbody id="viewsBody" class="bg-white divide-y divide-gray-200"></tbody>
-                <tfoot id="viewsFooter" class="bg-gray-50"></tfoot>
-            </table>
-        </div>
-        <p id="loading" class="text-center text-gray-500 mt-4">Loading...</p>
-        <p id="error" class="text-center text-red-500 mt-4 hidden"></p>
-    </div>
+<body>
+    <h1>YouTube Video Views Comparison</h1>
+    <h3>Fixed Video: Jhoome Jo Pathan (YxWlaYCA8MU)</h3>
+    <h3>Second Video ID: <span id="secondVideoId"></span></h3>
+    <input type="text" id="newVideoId" placeholder="Enter new video ID">
+    <button onclick="updateVideoId()">Update Second Video ID</button>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Hour</th>
+                <th>Jhoome Jo Pathan Views</th>
+                <th>Second Video Views</th>
+                <th>Difference</th>
+            </tr>
+        </thead>
+        <tbody id="comparisonTable"></tbody>
+    </table>
 
     <script>
-        // Handle video form submission (Add Video Link)
-        document.getElementById("videoForm").addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const message = document.getElementById("videoMessage");
-            const videoList = document.getElementById("videoList");
-            const videoFilter = document.getElementById("videoFilter");
-            
-            message.classList.add("hidden");
-            
-            // Extract video ID from the link
-            const videoLink = document.getElementById("videoLink").value;
-            let videoId = null;
-            const patterns = [
-                /(?:v=|\/)([0-9A-Za-z_-]{11}).*/,
-                /youtu\.be\/([0-9A-Za-z_-]{11})/
-            ];
-            for (const pattern of patterns) {
-                const match = videoLink.match(pattern);
-                if (match) {
-                    videoId = match[1];
-                    break;
-                }
-            }
-
-            if (!videoId) {
-                message.classList.remove("hidden");
-                message.classList.remove("text-green-500");
-                message.classList.add("text-red-500");
-                message.textContent = "Invalid YouTube video link";
-                return;
-            }
-
-            formData.set("video_id", videoId);
-            
-            try {
-                const response = await fetch("/add_video", {
-                    method: "POST",
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    const text = await response.text();
-                    throw new Error(`Server error: ${response.status} - ${text}`);
-                }
-                
-                const result = await response.json();
-                
-                message.classList.remove("hidden");
-                if (result.status === "success") {
-                    message.classList.remove("text-red-500");
-                    message.classList.add("text-green-500");
-                    message.textContent = result.message;
-                    const li = document.createElement("li");
-                    li.classList.add("flex", "items-center");
-                    li.innerHTML = `
-                        <span class="video-id" data-video-id="${videoId}">${videoId}</span>
-                        <button class="remove-video ml-2 text-red-500 hover:text-red-700 text-xs" data-video-id="${videoId}">Remove</button>
-                    `;
-                    videoList.appendChild(li);
-                    const option = document.createElement("option");
-                    option.value = videoId;
-                    option.textContent = videoId;
-                    videoFilter.appendChild(option);
-                    e.target.reset();
-                    attachRemoveListeners();
-                    fetchViews(document.getElementById("datePicker").value, videoFilter.value);
-                } else {
-                    message.classList.remove("text-green-500");
-                    message.classList.add("text-red-500");
-                    message.textContent = result.message;
-                }
-            } catch (err) {
-                message.classList.remove("hidden");
-                message.classList.remove("text-green-500");
-                message.classList.add("text-red-500");
-                message.textContent = `Error: ${err.message}`;
-            }
-        });
-
-        // Handle remove video
-        function attachRemoveListeners() {
-            const removeButtons = document.querySelectorAll(".remove-video");
-            removeButtons.forEach(button => {
-                button.addEventListener("click", async () => {
-                    const videoId = button.getAttribute("data-video-id");
-                    const message = document.getElementById("videoMessage");
-                    const videoFilter = document.getElementById("videoFilter");
-                    
-                    message.classList.add("hidden");
-                    
-                    try {
-                        const formData = new FormData();
-                        formData.append("video_id", videoId);
-                        const response = await fetch("/remove_video", {
-                            method: "POST",
-                            body: formData
-                        });
-                        
-                        if (!response.ok) {
-                            const text = await response.text();
-                            throw new Error(`Server error: ${response.status} - ${text}`);
-                        }
-                        
-                        const result = await response.json();
-                        
-                        message.classList.remove("hidden");
-                        if (result.status === "success") {
-                            message.classList.remove("text-red-500");
-                            message.classList.add("text-green-500");
-                            message.textContent = result.message;
-                            button.parentElement.remove();
-                            const option = videoFilter.querySelector(`option[value="${videoId}"]`);
-                            if (option) option.remove();
-                            if (videoFilter.value === videoId) {
-                                videoFilter.value = "";
-                            }
-                            fetchViews(document.getElementById("datePicker").value, videoFilter.value);
-                        } else {
-                            message.classList.remove("text-green-500");
-                            message.classList.add("text-red-500");
-                            message.textContent = result.message;
-                        }
-                    } catch (err) {
-                        message.classList.remove("hidden");
-                        message.classList.remove("text-green-500");
-                        message.classList.add("text-red-500");
-                        message.textContent = `Error: ${err.message}`;
-                    }
-                });
+        async function loadComparison() {
+            const response = await axios.get("/compare_views");
+            const data = response.data;
+            const tableBody = document.getElementById("comparisonTable");
+            tableBody.innerHTML = "";
+            data.forEach(row => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${row.hour}</td>
+                    <td>${row.fixed_video_views}</td>
+                    <td>${row.second_video_views}</td>
+                    <td>${row.difference}</td>
+                `;
+                tableBody.appendChild(tr);
             });
         }
 
-        attachRemoveListeners();
-
-        async function fetchViews(date = null, videoId = "") {
-            const loading = document.getElementById("loading");
-            const error = document.getElementById("error");
-            const tbody = document.getElementById("viewsBody");
-            const tfoot = document.getElementById("viewsFooter");
-            
-            loading.classList.remove("hidden");
-            error.classList.add("hidden");
-            tbody.innerHTML = "";
-            tfoot.innerHTML = "";
-
-            try {
-                let url;
-                if (videoId) {
-                    url = date ? `/api/views/${date}/${videoId}` : `/api/views/${videoId}`;
-                } else {
-                    url = date ? `/api/views/${date}` : "/api/views";
-                }
-                const response = await fetch(url);
-                if (!response.ok) {
-                    const text = await response.text();
-                    throw new Error(`Server error: ${response.status} - ${text}`);
-                }
-                const data = await response.json();
-                
-                let totalUrl = date ? `/api/views/${date}/total` : "/api/views/total";
-                if (videoId) totalUrl += `?video_id=${videoId}`;
-                const totalResponse = await fetch(totalUrl);
-                if (!totalResponse.ok) {
-                    const text = await totalResponse.text();
-                    throw new Error(`Server error: ${totalResponse.status} - ${text}`);
-                }
-                const totals = await totalResponse.json();
-
-                if (data.length === 0) {
-                    error.textContent = "No data available for this date/video.";
-                    error.classList.remove("hidden");
-                } else {
-                    data.forEach(row => {
-                        const tr = document.createElement("tr");
-                        tr.innerHTML = `
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.timestamp}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_count}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.view_gain}</td>
-                        `;
-                        tbody.appendChild(tr);
-                    });
-
-                    if (Object.keys(totals).length > 0) {
-                        Object.keys(totals).forEach(video_id => {
-                            const tr = document.createElement("tr");
-                            tr.innerHTML = `
-                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900" colspan="2">Total Views Gained (${video_id})</td>
-                                <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${totals[video_id]}</td>
-                            `;
-                            tfoot.appendChild(tr);
-                        });
-                    }
-                }
-            } catch (err) {
-                error.textContent = `Error: ${err.message}`;
-                error.classList.remove("hidden");
-            } finally {
-                loading.classList.add("hidden");
-            }
+        async function updateVideoId() {
+            const newVideoId = document.getElementById("newVideoId").value;
+            await axios.post("/update_video_id", { video_id: newVideoId });
+            document.getElementById("secondVideoId").innerText = newVideoId;
+            loadComparison();
         }
 
-        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-        document.getElementById("datePicker").value = today;
-
-        fetchViews(today, document.getElementById("videoFilter").value);
-
-        document.getElementById("datePicker").addEventListener("change", (e) => {
-            fetchViews(e.target.value, document.getElementById("videoFilter").value);
-        });
-
-        document.getElementById("videoFilter").addEventListener("change", (e) => {
-            fetchViews(document.getElementById("datePicker").value, e.target.value);
-        });
-
-        setInterval(() => {
-            const selectedDate = document.getElementById("datePicker").value;
-            if (selectedDate === today) {
-                fetchViews(selectedDate, document.getElementById("videoFilter").value);
-            }
-        }, 60000);
+        // Load comparison data on page load
+        loadComparison();
     </script>
 </body>
 </html>
