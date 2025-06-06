@@ -1,54 +1,48 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>YouTube Video Views Comparison</title>
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Views Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <h1>YouTube Video Views Comparison</h1>
-    <h3>Fixed Video: Jhoome Jo Pathan (YxWlaYCA8MU)</h3>
-    <h3>Second Video ID: <span id="secondVideoId"></span></h3>
-    <input type="text" id="newVideoId" placeholder="Enter new video ID">
-    <button onclick="updateVideoId()">Update Second Video ID</button>
-    <table border="1">
-        <thead>
-            <tr>
-                <th>Hour</th>
-                <th>Jhoome Jo Pathan Views</th>
-                <th>Second Video Views</th>
-                <th>Difference</th>
-            </tr>
-        </thead>
-        <tbody id="comparisonTable"></tbody>
-    </table>
-
-    <script>
-        async function loadComparison() {
-            const response = await axios.get("/compare_views");
-            const data = response.data;
-            const tableBody = document.getElementById("comparisonTable");
-            tableBody.innerHTML = "";
-            data.forEach(row => {
-                const tr = document.createElement("tr");
-                tr.innerHTML = `
-                    <td>${row.hour}</td>
-                    <td>${row.fixed_video_views}</td>
-                    <td>${row.second_video_views}</td>
-                    <td>${row.difference}</td>
-                `;
-                tableBody.appendChild(tr);
-            });
-        }
-
-        async function updateVideoId() {
-            const newVideoId = document.getElementById("newVideoId").value;
-            await axios.post("/update_video_id", { video_id: newVideoId });
-            document.getElementById("secondVideoId").innerText = newVideoId;
-            loadComparison();
-        }
-
-        // Load comparison data on page load
-        loadComparison();
-    </script>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-4xl">
+        <h1 class="text-2xl font-bold mb-4 text-center">YouTube Views Tracker</h1>
+        <form method="POST" class="mb-6">
+            <label for="video_id" class="block text-sm font-medium text-gray-700">Enter Sourav Joshi Video ID (or other):</label>
+            <input type="text" name="video_id" id="video_id" value="{{ changeable_video_id or '' }}"
+                   class="mt-1 p-2 w-full border rounded-md" placeholder="e.g., UCR5C2a0pv_5S-0a8pV2y1jg">
+            <button type="submit" class="mt-2 bg-blue-500 text-white p-2 rounded-md hover:bg-blue-600">
+                Track Video
+            </button>
+        </form>
+        <h2 class="text-xl font-semibold mb-4">Per-Minute Views Comparison</h2>
+        <table class="w-full border-collapse border border-gray-300">
+            <thead>
+                <tr class="bg-gray-200">
+                    <th class="border border-gray-300 p-2">Minute</th>
+                    <th class="border border-gray-300 p-2">Jhoome Jo Pathaan Views</th>
+                    <th class="border border-gray-300 p-2">Jhoome Jo Pathaan Gain</th>
+                    <th class="border border-gray-300 p-2">Sourav Joshi (or other) Views</th>
+                    <th class="border border-gray-300 p-2">Sourav Joshi (or other) Gain</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in comparison %}
+                <tr>
+                    <td class="border border-gray-300 p-2">{{ row.minute }}</td>
+                    <td class="border border-gray-300 p-2">{{ row.pathaan_views }}</td>
+                    <td class="border border-gray-300 p-2">{{ row.pathaan_gain }}</td>
+                    <td class="border border-gray-300 p-2">{{ row.joshi_views }}</td>
+                    <td class="border border-gray-300 p-2">{{ row.joshi_gain }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="/export" class="mt-4 inline-block bg-green-500 text-white p-2 rounded-md hover:bg-green-600">
+            Export to Excel
+        </a>
+    </div>
 </body>
 </html>
