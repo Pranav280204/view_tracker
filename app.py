@@ -69,34 +69,7 @@ def store_views(video_id, views):
     finally:
         conn.close()
 
-# Generate Excel file
-def generate_excel_file():
-    try:
-        conn = sqlite3.connect("views.db", check_same_thread=False)
-        c = conn.cursor()
-        c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
-        rows = c.fetchall()
-        conn.close()
-        
-        data = []
-        for row in rows:
-            video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
-            data.append({
-                "Video": video_name,
-                "Timestamp": row[1],
-                "Views": row[2]
-            })
-        
-        df = pd.DataFrame(data)
-        excel_file = "/tmp/youtube_views.xlsx"
-        df.to_excel(excel_file, index=False)
-        logger.info(f"Generated Excel file at {excel_file}")
-        return excel_file
-    except Exception as e:
-        logger.error(f"Error generating Excel file: {e}")
-        return None
-
-# Background task to fetch views every hour
+# Background task to fetch views every minute
 def fetch_views_periodically():
     pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
     default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
@@ -117,23 +90,12 @@ def fetch_views_periodically():
                     store_views(video_id, views)
         except Exception as e:
             logger.error(f"Background task error: {e}")
-        time.sleep(3600)  # Wait 1 hour
+        time.sleep(60)  # Wait 1 minute
 
-# Background task to generate Excel file every hour
-def generate_excel_periodically():
-    while True:
-        try:
-            generate_excel_file()
-        except Exception as e:
-            logger.error(f"Periodic Excel generation error: {e}")
-        time.sleep(3600)  # Wait 1 hour
-
-# Start background tasks
-def start_background_tasks():
-    view_thread = threading.Thread(target=fetch_views_periodically, daemon=True)
-    excel_thread = threading.Thread(target=generate_excel_periodically, daemon=True)
-    view_thread.start()
-    excel_thread.start()
+# Start background task
+def start_background_task():
+    thread = threading.Thread(target=fetch_views_periodically, daemon=True)
+    thread.start()
 
 # Route for home page
 @app.route("/", methods=["GET", "POST"])
@@ -177,15 +139,15 @@ def index():
         # Prepare comparison data
         comparison = []
         for i, (pathaan_time, pathaan_views) in enumerate(pathaan_data):
-            pathaan_hour = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
+            pathaan_minute = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
             joshi_views = 0
             for joshi_time, views in joshi_data:
-                joshi_hour = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(minute=0, second=0)
-                if joshi_hour == pathaan_hour:
+                joshi_minute = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(second=0)
+                if joshi_minute == pathaan_minute:
                     joshi_views = views
                     break
             comparison.append({
-                "hour": pathaan_hour.strftime("%Y-%m-%d %H:00"),
+                "minute": pathaan_minute.strftime("%Y-%m-%d %H:%M"),
                 "pathaan_views": pathaan_views,
                 "joshi_views": joshi_views,
                 "pathaan_gain": pathaan_views - (pathaan_data[i-1][1] if i > 0 else pathaan_views),
@@ -206,24 +168,38 @@ def index():
 @app.route("/export")
 def export():
     try:
-        excel_file = "/tmp/youtube_views.xlsx"
-        if os.path.exists(excel_file):
-            logger.info(f"Serving pre-generated Excel file: {excel_file}")
-            return send_file(excel_file, as_attachment=True)
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
         
-        # Fallback to generating a new file
-        excel_file = generate_excel_file()
-        if excel_file:
-            return send_file(excel_file, as_attachment=True)
-        else:
-            return "Error generating Excel file", 500
+        c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
+        rows = c.fetchall()
+        conn.close()
+        
+        data = []
+        for row in rows:
+            video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
+            data.append({
+                "Video": video_name,
+                "Timestamp": row[1],
+                "Views": row[2]
+            })
+        
+        df = pd.DataFrame(data)
+        excel_file = "youtube_views.xlsx"
+        df.to_excel(excel_file, index=False)
+        
+        return send_file(excel_file, as_attachment=True)
+    except sqlite3.Error as e:
+        logger.error(f"Database error in export route: {e}", exc_info=True)
+        return "Database error exporting data", 500
     except Exception as e:
         logger.error(f"Error in export route: {e}", exc_info=True)
         return "Error exporting data", 500
 
-# Initialize database and start background tasks at app startup
+# Initialize database at app startup
 init_db()
-start_background_tasks()
+start_background_task()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    
