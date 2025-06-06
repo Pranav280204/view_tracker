@@ -105,6 +105,9 @@ def index():
     error_message = None
 
     try:
+        # Ensure database is initialized
+        init_db()
+
         changeable_video_id = None
         if request.method == "POST":
             changeable_video_id = request.form.get("video_id")
@@ -153,6 +156,10 @@ def index():
 
         return render_template("index.html", comparison=comparison, changeable_video_id=changeable_video_id, error_message=error_message)
     
+    except sqlite3.Error as e:
+        logger.error(f"Database error in index route: {e}", exc_info=True)
+        init_db()  # Retry database initialization
+        return render_template("index.html", comparison=[], changeable_video_id=changeable_video_id, error_message=f"Database error: {e}")
     except Exception as e:
         logger.error(f"Error in index route: {e}", exc_info=True)
         return render_template("index.html", comparison=[], changeable_video_id=changeable_video_id, error_message=str(e))
@@ -182,11 +189,16 @@ def export():
         df.to_excel(excel_file, index=False)
         
         return send_file(excel_file, as_attachment=True)
+    except sqlite3.Error as e:
+        logger.error(f"Database error in export route: {e}", exc_info=True)
+        return "Database error exporting data", 500
     except Exception as e:
         logger.error(f"Error in export route: {e}", exc_info=True)
         return "Error exporting data", 500
 
+# Initialize database at app startup
+init_db()
+start_background_task()
+
 if __name__ == "__main__":
-    init_db()
-    start_background_task()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
