@@ -115,12 +115,12 @@ def index():
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
         
-        # Fetch data for Aj Ki Raat
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp DESC", (video_id_1,))
+        # Fetch data for Aj Ki Raat, sort in ascending order
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_1,))
         aj_ki_raat_data = process_view_gains(c.fetchall())
         
-        # Fetch data for Rose
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp DESC", (video_id_2,))
+        # Fetch data for Rose, sort in ascending order
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_2,))
         rose_data = process_view_gains(c.fetchall())
         
         conn.close()
