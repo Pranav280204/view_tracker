@@ -71,7 +71,7 @@ def store_views(video_id, views):
     finally:
         conn.close()
 
-# Background task to fetch views every hour
+# Background task to fetch views every 5 minutes
 def fetch_views_periodically():
     pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
     default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
@@ -92,7 +92,7 @@ def fetch_views_periodically():
                     store_views(video_id, views)
         except Exception as e:
             logger.error(f"Background task error: {e}")
-        time.sleep(3600)  # Wait 1 hour
+        time.sleep(300)  # Wait 5 minutes
 
 # Start background task
 def start_background_task():
@@ -107,10 +107,9 @@ def index():
     error_message = None
 
     try:
-        # Ensure database is initialized
         init_db()
-
         changeable_video_id = None
+
         if request.method == "POST":
             changeable_video_id = request.form.get("video_id")
             if changeable_video_id:
@@ -120,15 +119,12 @@ def index():
                 else:
                     error_message = "Invalid video ID or no view data available"
 
-        # Fetch data from database
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
         
-        # Get views for Jhoome Jo Pathaan
         c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (pathaan_video_id,))
         pathaan_data = c.fetchall()
         
-        # Get views for changeable video
         if not changeable_video_id:
             c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
             result = c.fetchone()
@@ -138,7 +134,6 @@ def index():
         joshi_data = c.fetchall()
         conn.close()
 
-        # Prepare comparison data (aggregate by hour)
         comparison = []
         ist = pytz.timezone("Asia/Kolkata")
         for i, (pathaan_time, pathaan_views) in enumerate(pathaan_data):
@@ -163,7 +158,7 @@ def index():
     
     except sqlite3.Error as e:
         logger.error(f"Database error in index route: {e}", exc_info=True)
-        init_db()  # Retry database initialization
+        init_db()
         return render_template("index.html", comparison=[], changeable_video_id=changeable_video_id, error_message=f"Database error: {e}")
     except Exception as e:
         logger.error(f"Error in index route: {e}", exc_info=True)
@@ -185,7 +180,7 @@ def export():
             video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
             data.append({
                 "Video": video_name,
-                "Timestamp": row[1],  # Already in IST
+                "Timestamp": row[1],
                 "Views": row[2]
             })
         
