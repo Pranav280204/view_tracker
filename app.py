@@ -1,14 +1,14 @@
 import os
-import sqlite3
 import threading
+import logging
+import pytz
+import sqlite3
 import time
 from datetime import datetime
 import pandas as pd
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, send_file
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import logging
-import pytz
 
 app = Flask(__name__)
 
@@ -33,7 +33,7 @@ def init_db():
             views INTEGER
         )""")
         conn.commit()
-        logger.info("Database initialized successfully")
+        logger.info("Successfully initialized database")
     except sqlite3.Error as e:
         logger.error(f"Database initialization failed: {e}")
     finally:
@@ -73,18 +73,11 @@ def store_views(video_id, views):
 
 # Background task to fetch views every 5 minutes
 def fetch_views_periodically():
-    pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
-    default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
+    video_id_1 = "hxMNYkLN7tI"  # Aj Ki Raat
+    video_id_2 = "ekr2nIex040"  # Rose
     while True:
         try:
-            conn = sqlite3.connect("views.db", check_same_thread=False)
-            c = conn.cursor()
-            c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
-            result = c.fetchone()
-            changeable_video_id = result[0] if result else default_joshi_video_id
-            conn.close()
-
-            video_ids = [pathaan_video_id, changeable_video_id]
+            video_ids = [video_id_1, video_id_2]
             views_dict = fetch_views(video_ids)
             
             for video_id, views in views_dict.items():
@@ -99,94 +92,102 @@ def start_background_task():
     thread = threading.Thread(target=fetch_views_periodically, daemon=True)
     thread.start()
 
+# Process data to include view gains
+def process_view_gains(data):
+    processed_data = []
+    for i in range(len(data)):
+        timestamp, views = data[i]
+        # Calculate view gain (difference from previous timestamp)
+        view_gain = 0 if i == 0 else views - data[i-1][1]
+        processed_data.append((timestamp, views, view_gain))
+    return processed_data
+
 # Route for home page
-@app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET"])
 def index():
-    pathaan_video_id = "YxWlaYCA8MU"  # Jhoome Jo Pathaan
-    default_joshi_video_id = "UCR5C2a0pv_5S-0a8pV2y1jg"  # Sourav Joshi default video
+    video_id_1 = "hxMNYkLN7tI"  # Aj Ki Raat
+    video_id_2 = "ekr2nIex040"  # Rose
     error_message = None
 
     try:
         init_db()
-        changeable_video_id = None
-
-        if request.method == "POST":
-            changeable_video_id = request.form.get("video_id")
-            if changeable_video_id:
-                views = fetch_views([changeable_video_id])
-                if changeable_video_id in views and views[changeable_video_id]:
-                    store_views(changeable_video_id, views[changeable_video_id])
-                else:
-                    error_message = "Invalid video ID or no view data available"
-
+        
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
         
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (pathaan_video_id,))
-        pathaan_data = c.fetchall()
+        # Fetch data for Aj Ki Raat
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp DESC", (video_id_1,))
+        aj_ki_raat_data = process_view_gains(c.fetchall())
         
-        if not changeable_video_id:
-            c.execute("SELECT DISTINCT video_id FROM views WHERE video_id != ? ORDER BY timestamp DESC LIMIT 1", (pathaan_video_id,))
-            result = c.fetchone()
-            changeable_video_id = result[0] if result else default_joshi_video_id
+        # Fetch data for Rose
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp DESC", (video_id_2,))
+        rose_data = process_view_gains(c.fetchall())
         
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (changeable_video_id,))
-        joshi_data = c.fetchall()
         conn.close()
 
-        comparison = []
-        ist = pytz.timezone("Asia/Kolkata")
-        for i, (pathaan_time, pathaan_views) in enumerate(pathaan_data):
-            pathaan_dt = datetime.strptime(pathaan_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ist)
-            pathaan_hour = pathaan_dt.replace(minute=0, second=0)
-            joshi_views = 0
-            for joshi_time, views in joshi_data:
-                joshi_dt = datetime.strptime(joshi_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ist)
-                joshi_hour = joshi_dt.replace(minute=0, second=0)
-                if joshi_hour == pathaan_hour:
-                    joshi_views = views
-                    break
-            comparison.append({
-                "hour": pathaan_hour.strftime("%Y-%m-%d %H:00"),
-                "pathaan_views": pathaan_views,
-                "joshi_views": joshi_views,
-                "pathaan_gain": pathaan_views - (pathaan_data[i-1][1] if i > 0 else pathaan_views),
-                "joshi_gain": joshi_views - (joshi_data[i-1][1] if i > 0 and joshi_views else joshi_views)
-            })
-
-        return render_template("index.html", comparison=comparison, changeable_video_id=changeable_video_id, error_message=error_message)
+        return render_template(
+            "index.html",
+            aj_ki_raat_data=aj_ki_raat_data,
+            rose_data=rose_data,
+            error_message=error_message,
+            song1_name="Aj Ki Raat",
+            song2_name="Rose"
+        )
     
     except sqlite3.Error as e:
-        logger.error(f"Database error in index route: {e}", exc_info=True)
+        logger.error(f"Error in index route: {e}", exc_info=True)
         init_db()
-        return render_template("index.html", comparison=[], changeable_video_id=changeable_video_id, error_message=f"Database error: {e}")
+        return render_template(
+            "index.html",
+            aj_ki_raat_data=[],
+            rose_data=[],
+            error_message=f"Database error: {e}",
+            song1_name="Aj Ki Raat",
+            song2_name="Rose"
+        )
     except Exception as e:
         logger.error(f"Error in index route: {e}", exc_info=True)
-        return render_template("index.html", comparison=[], changeable_video_id=changeable_video_id, error_message=str(e))
+        return render_template(
+            "index.html",
+            aj_ki_raat_data=[],
+            rose_data=[],
+            error_message=str(e),
+            song1_name="Aj Ki Raat",
+            song2_name="Rose"
+        )
 
-# Route to export data to Excel
+# Route to export to Excel
 @app.route("/export")
 def export():
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
         
-        c.execute("SELECT video_id, timestamp, views FROM views ORDER BY timestamp")
-        rows = c.fetchall()
+        # Fetch data for Aj Ki Raat
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", ("hxMNYkLN7tI",))
+        aj_ki_raat_rows = c.fetchall()
+        
+        # Fetch data for Rose
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", ("ekr2nIex040",))
+        rose_rows = c.fetchall()
+        
         conn.close()
         
-        data = []
-        for row in rows:
-            video_name = "Jhoome Jo Pathaan" if row[0] == "YxWlaYCA8MU" else "Sourav Joshi (or other)"
-            data.append({
-                "Video": video_name,
-                "Timestamp": row[1],
-                "Views": row[2]
-            })
+        # Prepare data with view gains for Aj Ki Raat
+        aj_ki_raat_data = [{"Timestamp": row[0], "Views": row[1], "View Gain": 0 if i == 0 else row[1] - aj_ki_raat_rows[i-1][1]} 
+                           for i, row in enumerate(aj_ki_raat_rows)]
+        aj_ki_raat_df = pd.DataFrame(aj_ki_raat_data)
         
-        df = pd.DataFrame(data)
+        # Prepare data with view gains for Rose
+        rose_data = [{"Timestamp": row[0], "Views": row[1], "View Gain": 0 if i == 0 else row[1] - rose_rows[i-1][1]} 
+                     for i, row in enumerate(rose_rows)]
+        rose_df = pd.DataFrame(rose_data)
+        
+        # Create Excel file with two sheets
         excel_file = "youtube_views.xlsx"
-        df.to_excel(excel_file, index=False)
+        with pd.ExcelWriter(excel_file, engine="openpyxl") as writer:
+            aj_ki_raat_df.to_excel(writer, sheet_name="Aj Ki Raat", index=False)
+            rose_df.to_excel(writer, sheet_name="Rose", index=False)
         
         return send_file(excel_file, as_attachment=True)
     except sqlite3.Error as e:
