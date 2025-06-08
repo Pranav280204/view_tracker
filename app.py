@@ -75,7 +75,7 @@ def store_views(video_id, views):
 def fetch_views_periodically():
     video_id_1 = "hxMNYkLN7tI"  # Aj Ki Raat
     video_id_2 = "ekr2nIex040"  # Rose
-    video_id_3 = "hTSaweR8qMI"  # New video
+    video_id_3 = "hTSaweR8qMI"  # Keeping the same video ID, renaming to "MrBeast"
     while True:
         try:
             video_ids = [video_id_1, video_id_2, video_id_3]
@@ -109,10 +109,7 @@ def calculate_required_views_per_interval(latest_views, target_views, target_tim
         target_time = datetime.strptime(target_time_str, "%Y-%m-%d %H:%M:%S")
         target_time = pytz.timezone("Asia/Kolkata").localize(target_time)
 
-        # Ensure current_time is timezone-aware
-        current_time = pytz.timezone("Asia/Kolkata").localize(current_time)
-
-        # Calculate time difference in seconds
+        # Current time is already timezone-aware, no need to localize again
         time_diff_seconds = (target_time - current_time).total_seconds()
         if time_diff_seconds <= 0:
             return None, "Target time must be in the future."
@@ -138,7 +135,7 @@ def calculate_required_views_per_interval(latest_views, target_views, target_tim
 def index():
     video_id_1 = "hxMNYkLN7tI"  # Aj Ki Raat
     video_id_2 = "ekr2nIex040"  # Rose
-    video_id_3 = "hTSaweR8qMI"  # New video
+    video_id_3 = "hTSaweR8qMI"  # Keeping the same video ID, renaming to "MrBeast"
     error_message = None
     target_message = None
     required_views_per_interval = None
@@ -157,11 +154,11 @@ def index():
         c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_2,))
         rose_data = process_view_gains(c.fetchall())
         
-        # Fetch data for the new video
+        # Fetch data for the renamed video (MrBeast)
         c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_3,))
         new_video_data = process_view_gains(c.fetchall())
         
-        # Handle target views and time for the new video
+        # Handle target views and time for the renamed video
         if request.method == "POST":
             target_views = request.form.get("target_views", type=int)
             target_time = request.form.get("target_time")
@@ -184,7 +181,7 @@ def index():
             required_views_per_interval=required_views_per_interval,
             song1_name="Aj Ki Raat",
             song2_name="Rose",
-            song3_name="New Video"  # Placeholder name, replace with actual video title if available
+            song3_name="MrBeast"  # Changed to "MrBeast" as requested
         )
     
     except sqlite3.Error as e:
@@ -200,7 +197,7 @@ def index():
             required_views_per_interval=None,
             song1_name="Aj Ki Raat",
             song2_name="Rose",
-            song3_name="New Video"
+            song3_name="MrBeast"
         )
     except Exception as e:
         logger.error(f"Error in index route: {e}", exc_info=True)
@@ -214,7 +211,7 @@ def index():
             required_views_per_interval=None,
             song1_name="Aj Ki Raat",
             song2_name="Rose",
-            song3_name="New Video"
+            song3_name="MrBeast"
         )
 
 # Route to export to Excel
@@ -232,7 +229,7 @@ def export():
         c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", ("ekr2nIex040",))
         rose_rows = c.fetchall()
         
-        # Fetch data for New Video
+        # Fetch data for the renamed video (MrBeast)
         c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", ("hTSaweR8qMI",))
         new_video_rows = c.fetchall()
         
@@ -248,7 +245,7 @@ def export():
                      for i, row in enumerate(rose_rows)]
         rose_df = pd.DataFrame(rose_data)
         
-        # Prepare data with view gains for New Video
+        # Prepare data with view gains for the renamed video (MrBeast)
         new_video_data = [{"Timestamp": row[0], "Views": row[1], "View Gain": 0 if i == 0 else row[1] - new_video_rows[i-1][1]} 
                           for i, row in enumerate(new_video_rows)]
         new_video_df = pd.DataFrame(new_video_data)
@@ -258,7 +255,7 @@ def export():
         with pd.ExcelWriter(excel_file, engine="openpyxl") as writer:
             aj_ki_raat_df.to_excel(writer, sheet_name="Aj Ki Raat", index=False)
             rose_df.to_excel(writer, sheet_name="Rose", index=False)
-            new_video_df.to_excel(writer, sheet_name="New Video", index=False)
+            new_video_df.to_excel(writer, sheet_name="MrBeast", index=False)  # Updated sheet name to "MrBeast"
         
         return send_file(excel_file, as_attachment=True)
     except sqlite3.Error as e:
