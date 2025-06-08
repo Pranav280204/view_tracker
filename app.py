@@ -73,9 +73,9 @@ def store_views(video_id, views):
 
 # Background task to fetch views every 5 minutes
 def fetch_views_periodically():
-    video_id_1 = "hxMNYkLN7tI"  # Aj Ki Raat
-    video_id_2 = "ekr2nIex040"  # Rose
-    video_id_3 = "hTSaweR8qMI"  # Keeping the same video ID, renaming to "MrBeast"
+    video_id_1 = "hTSaweR8qMI"  # MrBeast
+    video_id_2 = "hxMNYkLN7tI"  # Aj Ki Raat
+    video_id_3 = "ekr2nIex040"  # Rose
     while True:
         try:
             video_ids = [video_id_1, video_id_2, video_id_3]
@@ -133,12 +133,14 @@ def calculate_required_views_per_interval(latest_views, target_views, target_tim
 # Route for home page
 @app.route("/", methods=["GET", "POST"])
 def index():
-    video_id_1 = "hxMNYkLN7tI"  # Aj Ki Raat
-    video_id_2 = "ekr2nIex040"  # Rose
-    video_id_3 = "hTSaweR8qMI"  # Keeping the same video ID, renaming to "MrBeast"
+    video_id_1 = "hTSaweR8qMI"  # MrBeast
+    video_id_2 = "hxMNYkLN7tI"  # Aj Ki Raat
+    video_id_3 = "ekr2nIex040"  # Rose
     error_message = None
     target_message = None
     required_views_per_interval = None
+    target_views = None
+    target_time = None
 
     try:
         init_db()
@@ -146,24 +148,24 @@ def index():
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
         
-        # Fetch data for Aj Ki Raat
+        # Fetch data for MrBeast
         c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_1,))
+        mrbeast_data = process_view_gains(c.fetchall())
+        
+        # Fetch data for Aj Ki Raat
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_2,))
         aj_ki_raat_data = process_view_gains(c.fetchall())
         
         # Fetch data for Rose
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_2,))
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_3,))
         rose_data = process_view_gains(c.fetchall())
         
-        # Fetch data for the renamed video (MrBeast)
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id_3,))
-        new_video_data = process_view_gains(c.fetchall())
-        
-        # Handle target views and time for the renamed video
+        # Handle target views and time for MrBeast (first section)
         if request.method == "POST":
             target_views = request.form.get("target_views", type=int)
             target_time = request.form.get("target_time")
-            if target_views and target_time and new_video_data:
-                latest_views = new_video_data[-1][1]  # Most recent views
+            if target_views and target_time and mrbeast_data:
+                latest_views = mrbeast_data[-1][1]  # Most recent views
                 current_time = datetime.now(pytz.timezone("Asia/Kolkata"))
                 required_views_per_interval, target_message = calculate_required_views_per_interval(
                     latest_views, target_views, target_time, current_time
@@ -173,15 +175,17 @@ def index():
 
         return render_template(
             "index.html",
+            mrbeast_data=mrbeast_data,
             aj_ki_raat_data=aj_ki_raat_data,
             rose_data=rose_data,
-            new_video_data=new_video_data,
             error_message=error_message,
             target_message=target_message,
             required_views_per_interval=required_views_per_interval,
-            song1_name="Aj Ki Raat",
-            song2_name="Rose",
-            song3_name="MrBeast"  # Changed to "MrBeast" as requested
+            target_views=target_views,
+            target_time=target_time,
+            song1_name="MrBeast",
+            song2_name="Aj Ki Raat",
+            song3_name="Rose"
         )
     
     except sqlite3.Error as e:
@@ -189,29 +193,33 @@ def index():
         init_db()
         return render_template(
             "index.html",
+            mrbeast_data=[],
             aj_ki_raat_data=[],
             rose_data=[],
-            new_video_data=[],
             error_message=f"Database error: {e}",
             target_message=None,
             required_views_per_interval=None,
-            song1_name="Aj Ki Raat",
-            song2_name="Rose",
-            song3_name="MrBeast"
+            target_views=None,
+            target_time=None,
+            song1_name="MrBeast",
+            song2_name="Aj Ki Raat",
+            song3_name="Rose"
         )
     except Exception as e:
         logger.error(f"Error in index route: {e}", exc_info=True)
         return render_template(
             "index.html",
+            mrbeast_data=[],
             aj_ki_raat_data=[],
             rose_data=[],
-            new_video_data=[],
             error_message=str(e),
             target_message=None,
             required_views_per_interval=None,
-            song1_name="Aj Ki Raat",
-            song2_name="Rose",
-            song3_name="MrBeast"
+            target_views=None,
+            target_time=None,
+            song1_name="MrBeast",
+            song2_name="Aj Ki Raat",
+            song3_name="Rose"
         )
 
 # Route to export to Excel
@@ -221,6 +229,10 @@ def export():
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
         
+        # Fetch data for MrBeast
+        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", ("hTSaweR8qMI",))
+        mrbeast_rows = c.fetchall()
+        
         # Fetch data for Aj Ki Raat
         c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", ("hxMNYkLN7tI",))
         aj_ki_raat_rows = c.fetchall()
@@ -229,11 +241,12 @@ def export():
         c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", ("ekr2nIex040",))
         rose_rows = c.fetchall()
         
-        # Fetch data for the renamed video (MrBeast)
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", ("hTSaweR8qMI",))
-        new_video_rows = c.fetchall()
-        
         conn.close()
+        
+        # Prepare data with view gains for MrBeast
+        mrbeast_data = [{"Timestamp": row[0], "Views": row[1], "View Gain": 0 if i == 0 else row[1] - mrbeast_rows[i-1][1]} 
+                        for i, row in enumerate(mrbeast_rows)]
+        mrbeast_df = pd.DataFrame(mrbeast_data)
         
         # Prepare data with view gains for Aj Ki Raat
         aj_ki_raat_data = [{"Timestamp": row[0], "Views": row[1], "View Gain": 0 if i == 0 else row[1] - aj_ki_raat_rows[i-1][1]} 
@@ -245,17 +258,12 @@ def export():
                      for i, row in enumerate(rose_rows)]
         rose_df = pd.DataFrame(rose_data)
         
-        # Prepare data with view gains for the renamed video (MrBeast)
-        new_video_data = [{"Timestamp": row[0], "Views": row[1], "View Gain": 0 if i == 0 else row[1] - new_video_rows[i-1][1]} 
-                          for i, row in enumerate(new_video_rows)]
-        new_video_df = pd.DataFrame(new_video_data)
-        
         # Create Excel file with three sheets
         excel_file = "youtube_views.xlsx"
         with pd.ExcelWriter(excel_file, engine="openpyxl") as writer:
+            mrbeast_df.to_excel(writer, sheet_name="MrBeast", index=False)
             aj_ki_raat_df.to_excel(writer, sheet_name="Aj Ki Raat", index=False)
             rose_df.to_excel(writer, sheet_name="Rose", index=False)
-            new_video_df.to_excel(writer, sheet_name="MrBeast", index=False)  # Updated sheet name to "MrBeast"
         
         return send_file(excel_file, as_attachment=True)
     except sqlite3.Error as e:
