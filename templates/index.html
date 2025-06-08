@@ -45,107 +45,85 @@
             <p class="error-message text-center">{{ error_message }}</p>
         {% endif %}
 
+        <!-- Form to Add a Video -->
+        <div class="mb-4">
+            <h4>Add a YouTube Video</h4>
+            <form method="POST" action="/add_video">
+                <div class="mb-3">
+                    <label for="video_id" class="form-label">YouTube Video ID:</label>
+                    <input type="text" class="form-control" id="video_id" name="video_id" placeholder="e.g., hTSaweR8qMI" required>
+                </div>
+                <div class="mb-3">
+                    <label for="name" class="form-label">Video Name:</label>
+                    <input type="text" class="form-control" id="name" name="name" placeholder="e.g., MrBeast" required>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="is_targetable" name="is_targetable">
+                    <label class="form-check-label" for="is_targetable">Allow Target Setting</label>
+                </div>
+                <button type="submit" class="btn btn-primary">Add Video</button>
+            </form>
+        </div>
+
         <a href="/export" class="btn btn-primary mb-4">Export to Excel</a>
 
-        <!-- MrBeast Section -->
-        <div class="song-section">
-            <h2>{{ song1_name }}</h2>
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Timestamp (IST)</th>
-                            <th>Views</th>
-                            <th>View Gain</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for timestamp, views, view_gain in mrbeast_data[::-1] %}
+        <!-- Video Sections -->
+        {% for video in videos %}
+            <div class="song-section">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2>{{ video.name }}</h2>
+                    <a href="/remove_video/{{ video.video_id }}" class="btn btn-danger btn-sm">Remove</a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
                             <tr>
-                                <td>{{ timestamp }}</td>
-                                <td>{{ views | int }}</td>
-                                <td>{{ view_gain | int }}</td>
+                                <th>Timestamp (IST)</th>
+                                <th>Views</th>
+                                <th>View Gain</th>
                             </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            {% for timestamp, views, view_gain in video.data[::-1] %}
+                                <tr>
+                                    <td>{{ timestamp }}</td>
+                                    <td>{{ views | int }}</td>
+                                    <td>{{ view_gain | int }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
 
-            <!-- Target Views and Time Form -->
-            <div class="mt-3">
-                <h4>Set Target Views and Time</h4>
-                <form method="POST" action="/">
-                    <div class="mb-3">
-                        <label for="target_views" class="form-label">Target Views:</label>
-                        <input type="number" class="form-control" id="target_views" name="target_views" required>
+                <!-- Target Views and Time Form for Targetable Videos -->
+                {% if video.is_targetable %}
+                    <div class="mt-3">
+                        <h4>Set Target Views and Time</h4>
+                        <form method="POST" action="/">
+                            <input type="hidden" name="video_id" value="{{ video.video_id }}">
+                            <div class="mb-3">
+                                <label for="target_views_{{ video.video_id }}" class="form-label">Target Views:</label>
+                                <input type="number" class="form-control" id="target_views_{{ video.video_id }}" name="target_views" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="target_time_{{ video.video_id }}" class="form-label">Target Time (YYYY-MM-DD HH:MM:SS IST):</label>
+                                <input type="text" class="form-control" id="target_time_{{ video.video_id }}" name="target_time" placeholder="e.g., 2025-06-09 15:00:00" required>
+                            </div>
+                            <button type="submit" class="btn btn-success">Calculate</button>
+                        </form>
                     </div>
-                    <div class="mb-3">
-                        <label for="target_time" class="form-label">Target Time (YYYY-MM-DD HH:MM:SS IST):</label>
-                        <input type="text" class="form-control" id="target_time" name="target_time" placeholder="e.g., 2025-06-09 15:00:00" required>
-                    </div>
-                    <button type="submit" class="btn btn-success">Calculate</button>
-                </form>
-            </div>
 
-            <!-- Display Target Calculation Result -->
-            {% if target_message %}
-                <p class="target-message mt-3">{{ target_message }}</p>
-            {% elif required_views_per_interval is not none %}
-                <p class="target-result mt-3">Required views per 5-minute interval: {{ required_views_per_interval | round(2) }}</p>
-                <p class="target-info mt-1">Target Views: {{ target_views | int }}</p>
-                <p class="target-info mt-1">Target Time: {{ target_time }}</p>
-            {% endif %}
-        </div>
-
-        <!-- Aj Ki Raat Section -->
-        <div class="song-section">
-            <h2>{{ song2_name }}</h2>
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Timestamp (IST)</th>
-                            <th>Views</th>
-                            <th>View Gain</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for timestamp, views, view_gain in aj_ki_raat_data[::-1] %}
-                            <tr>
-                                <td>{{ timestamp }}</td>
-                                <td>{{ views | int }}</td>
-                                <td>{{ view_gain | int }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                    <!-- Display Target Calculation Result -->
+                    {% if video.target_message %}
+                        <p class="target-message mt-3">{{ video.target_message }}</p>
+                    {% elif video.required_views_per_interval is not none %}
+                        <p class="target-result mt-3">Required views per 5-minute interval: {{ video.required_views_per_interval | round(2) }}</p>
+                        <p class="target-info mt-1">Target Views: {{ video.target_views | int }}</p>
+                        <p class="target-info mt-1">Target Time: {{ video.target_time }}</p>
+                    {% endif %}
+                {% endif %}
             </div>
-        </div>
-
-        <!-- Rose Section -->
-        <div class="song-section">
-            <h2>{{ song3_name }}</h2>
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Timestamp (IST)</th>
-                            <th>Views</th>
-                            <th>View Gain</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for timestamp, views, view_gain in rose_data[::-1] %}
-                            <tr>
-                                <td>{{ timestamp }}</td>
-                                <td>{{ views | int }}</td>
-                                <td>{{ view_gain | int }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+        {% endfor %}
     </div>
 </body>
 </html>
