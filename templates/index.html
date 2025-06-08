@@ -32,6 +32,10 @@
             color: #28a745;
             font-weight: bold;
         }
+        .target-info {
+            color: #17a2b8;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -43,7 +47,7 @@
 
         <a href="/export" class="btn btn-primary mb-4">Export to Excel</a>
 
-        <!-- Aj Ki Raat Section -->
+        <!-- MrBeast Section -->
         <div class="song-section">
             <h2>{{ song1_name }}</h2>
             <div class="table-responsive">
@@ -56,57 +60,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for timestamp, views, view_gain in aj_ki_raat_data[::-1] %}
-                            <tr>
-                                <td>{{ timestamp }}</td>
-                                <td>{{ views | int }}</td>
-                                <td>{{ view_gain | int }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Rose Section -->
-        <div class="song-section">
-            <h2>{{ song2_name }}</h2>
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Timestamp (IST)</th>
-                            <th>Views</th>
-                            <th>View Gain</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for timestamp, views, view_gain in rose_data[::-1] %}
-                            <tr>
-                                <td>{{ timestamp }}</td>
-                                <td>{{ views | int }}</td>
-                                <td>{{ view_gain | int }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- MrBeast Section -->
-        <div class="song-section">
-            <h2>{{ song3_name }}</h2>
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Timestamp (IST)</th>
-                            <th>Views</th>
-                            <th>View Gain</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for timestamp, views, view_gain in new_video_data[::-1] %}
+                        {% for timestamp, views, view_gain in mrbeast_data[::-1] %}
                             <tr>
                                 <td>{{ timestamp }}</td>
                                 <td>{{ views | int }}</td>
@@ -138,7 +92,59 @@
                 <p class="target-message mt-3">{{ target_message }}</p>
             {% elif required_views_per_interval is not none %}
                 <p class="target-result mt-3">Required views per 5-minute interval: {{ required_views_per_interval | round(2) }}</p>
+                <p class="target-info mt-1">Target Views: {{ target_views | int }}</p>
+                <p class="target-info mt-1">Target Time: {{ target_time }}</p>
             {% endif %}
+        </div>
+
+        <!-- Aj Ki Raat Section -->
+        <div class="song-section">
+            <h2>{{ song2_name }}</h2>
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Timestamp (IST)</th>
+                            <th>Views</th>
+                            <th>View Gain</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for timestamp, views, view_gain in aj_ki_raat_data[::-1] %}
+                            <tr>
+                                <td>{{ timestamp }}</td>
+                                <td>{{ views | int }}</td>
+                                <td>{{ view_gain | int }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Rose Section -->
+        <div class="song-section">
+            <h2>{{ song3_name }}</h2>
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Timestamp (IST)</th>
+                            <th>Views</th>
+                            <th>View Gain</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for timestamp, views, view_gain in rose_data[::-1] %}
+                            <tr>
+                                <td>{{ timestamp }}</td>
+                                <td>{{ views | int }}</td>
+                                <td>{{ view_gain | int }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </body>
