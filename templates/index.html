@@ -24,6 +24,14 @@
             color: red;
             font-weight: bold;
         }
+        .target-message {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .target-result {
+            color: #28a745;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -83,6 +91,54 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+
+        <!-- New Video Section -->
+        <div class="song-section">
+            <h2>{{ song3_name }}</h2>
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Timestamp (IST)</th>
+                            <th>Views</th>
+                            <th>View Gain</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for timestamp, views, view_gain in new_video_data[::-1] %}
+                            <tr>
+                                <td>{{ timestamp }}</td>
+                                <td>{{ views | int }}</td>
+                                <td>{{ view_gain | int }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Target Views and Time Form -->
+            <div class="mt-3">
+                <h4>Set Target Views and Time</h4>
+                <form method="POST" action="/">
+                    <div class="mb-3">
+                        <label for="target_views" class="form-label">Target Views:</label>
+                        <input type="number" class="form-control" id="target_views" name="target_views" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="target_time" class="form-label">Target Time (YYYY-MM-DD HH:MM:SS IST):</label>
+                        <input type="text" class="form-control" id="target_time" name="target_time" placeholder="e.g., 2025-06-09 15:00:00" required>
+                    </div>
+                    <button type="submit" class="btn btn-success">Calculate</button>
+                </form>
+            </div>
+
+            <!-- Display Target Calculation Result -->
+            {% if target_message %}
+                <p class="target-message mt-3">{{ target_message }}</p>
+            {% elif required_views_per_interval is not none %}
+                <p class="target-result mt-3">Required views per 5-minute interval: {{ required_views_per_interval | round(2) }}</p>
+            {% endif %}
         </div>
     </div>
 </body>
