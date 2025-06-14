@@ -4,7 +4,6 @@ import logging
 import pytz
 import sqlite3
 import time
-import re
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 import pandas as pd
@@ -16,8 +15,15 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+# Preload timezone to avoid thread contention
+try:
+    IST = pytz.timezone("Asia/Kolkata")
+except Exception as e:
+    logger.error(f"Failed to initialize timezone: {e}")
+    IST = pytz.UTC  # Fallback to UTC if timezone fails
 
 # YouTube API setup
 API_KEY = os.getenv("YOUTUBE_API_KEY")
@@ -116,8 +122,7 @@ def store_views(video_id, views):
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
-        ist = pytz.timezone("Asia/Kolkata")
-        now = datetime.now(ist)
+        now = datetime.now(IST)
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         date = now.strftime("%Y-%m-%d")
         c.execute("INSERT INTO views (video_id, date, timestamp, views) VALUES (?, ?, ?, ?)",
@@ -134,8 +139,7 @@ def cleanup_old_data():
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
-        ist = pytz.timezone("Asia/Kolkata")
-        two_days_ago = (datetime.now(ist) - timedelta(days=2)).strftime("%Y-%m-%d")
+        two_days_ago = (datetime.now(IST) - timedelta(days=2)).strftime("%Y-%m-%d")
         c.execute("DELETE FROM views WHERE date < ?", (two_days_ago,))
         conn.commit()
         logger.info(f"Deleted view data older than {two_days_ago}")
@@ -161,7 +165,7 @@ def fetch_latest_sourav_joshi_video():
             video_id = item["id"]["videoId"]
             title = item["snippet"]["title"]
             published_at = datetime.strptime(item["snippet"]["publishedAt"], "%Y-%m-%dT%H:%M:%SZ")
-            published_at = pytz.utc.localize(published_at).astimezone(pytz.timezone("Asia/Kolkata"))
+            published_at = pytz.utc.localize(published_at).astimezone(IST)
             return video_id, title, published_at
         return None, None, None
     except HttpError as e:
@@ -174,8 +178,7 @@ def background_tasks():
     last_cleanup = None
     while True:
         try:
-            ist = pytz.timezone("Asia/Kolkata")
-            now = datetime.now(ist)
+            now = datetime.now(IST)
             current_time = now.time()
             current_date = now.date()
 
@@ -209,7 +212,6 @@ def background_tasks():
             seconds_to_wait = (minutes_to_next * 60) - seconds if minutes_to_next > 0 or seconds > 0 else 0
             if seconds_to_wait <= 0:
                 seconds_to_wait += 300
-            logger.debug(f"Waiting {seconds_to_wait} seconds until the next 5-minute mark")
             time.sleep(seconds_to_wait)
 
             conn = sqlite3.connect("views.db", check_same_thread=False)
@@ -237,7 +239,7 @@ def background_tasks():
                     result = c.fetchone()
                     if result:
                         latest_views = result[0]
-                        current_time = datetime.now(ist)
+                        current_time = datetime.now(IST)
                         required_views_per_interval, _ = calculate_required_views_per_interval(
                             latest_views, target_views, target_time, current_time
                         )
@@ -265,11 +267,9 @@ def process_view_gains(data):
         ts = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         hour_key = (date, ts.hour)
         
-        # Store first view of each hour
         if hour_key not in hourly_views:
             hourly_views[hour_key] = views
         
-        # Calculate hourly gain by comparing with previous hour
         prev_hour_key = (date, ts.hour - 1) if ts.hour > 0 else ((datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d"), 23)
         hourly_gain = views - hourly_views.get(prev_hour_key, views) if prev_hour_key in hourly_views else 0
         
@@ -280,7 +280,7 @@ def process_view_gains(data):
 def calculate_required_views_per_interval(latest_views, target_views, target_time_str, current_time):
     try:
         target_time = datetime.strptime(target_time_str, "%Y-%m-%dT%H:%M")
-        target_time = pytz.timezone("Asia/Kolkata").localize(target_time)
+        target_time = IST.localize(target_time)
         time_diff_seconds = (target_time - current_time).total_seconds()
         if time_diff_seconds <= 0:
             return None, "Target time must be in the future."
@@ -309,8 +309,7 @@ def index():
         c.execute("SELECT video_id, target_views, target_time, required_views_per_interval FROM targets")
         targets = {row[0]: {"target_views": row[1], "target_time": row[2], "required_views_per_interval": row[3]} for row in c.fetchall()}
 
-        ist = pytz.timezone("Asia/Kolkata")
-        two_days_ago = (datetime.now(ist) - timedelta(days=2)).strftime("%Y-%m-%d")
+        two_days_ago = (datetime.now(IST) - timedelta(days=2)).strftime("%Y-%m-%d")
 
         for video_id, name, is_targetable in video_list:
             c.execute("SELECT DISTINCT date FROM views WHERE video_id = ? AND date >= ? ORDER BY date DESC",
@@ -324,7 +323,7 @@ def index():
                 data = c.fetchall()
                 daily_data[date] = process_view_gains(data)
                 if date == max(dates) and daily_data[date]:
-                    latest_views = data[-1][2]  # Latest views from most recent date
+                    latest_views = data[-1][2]
             
             target_info = targets.get(video_id, {"target_views": None, "target_time": None, "required_views_per_interval": None})
             videos.append({
@@ -348,7 +347,7 @@ def index():
                 result = c.fetchone()
                 if result:
                     latest_views = result[0]
-                    current_time = datetime.now(pytz.timezone("Asia/Kolkata"))
+                    current_time = datetime.now(IST)
                     required_views_per_interval, target_message = calculate_required_views_per_interval(
                         latest_views, target_views, target_time, current_time
                     )
