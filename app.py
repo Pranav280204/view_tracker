@@ -18,12 +18,12 @@ app.secret_key = os.urandom(24)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# Preload timezone to avoid thread contention
+# Preload timezone
 try:
     IST = pytz.timezone("Asia/Kolkata")
 except Exception as e:
     logger.error(f"Failed to initialize timezone: {e}")
-    IST = pytz.UTC  # Fallback to UTC if timezone fails
+    IST = pytz.UTC
 
 # YouTube API setup
 API_KEY = os.getenv("YOUTUBE_API_KEY")
@@ -31,10 +31,12 @@ if not API_KEY:
     logger.error("YOUTUBE_API_KEY environment variable is not set")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
-# SQLite database setup
+# Database path (use /tmp on Render for persistence during runtime)
+DB_PATH = os.getenv("DB_PATH", "/tmp/views.db")
+
 def init_db():
     try:
-        conn = sqlite3.connect("views.db", check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute("""CREATE TABLE IF NOT EXISTS views (
             video_id TEXT,
@@ -71,7 +73,6 @@ def init_db():
     finally:
         conn.close()
 
-# Extract video_id from YouTube URL
 def extract_video_id(video_link):
     try:
         parsed_url = urlparse(video_link)
@@ -85,7 +86,6 @@ def extract_video_id(video_link):
         logger.error(f"Error parsing video link: {e}")
         return None
 
-# Fetch video title and views
 def fetch_video_details(video_id):
     if not youtube:
         logger.error("YouTube API client not initialized")
@@ -95,13 +95,14 @@ def fetch_video_details(video_id):
         for item in response.get("items", []):
             title = item["snippet"]["title"]
             views = int(item["statistics"]["viewCount"])
+            logger.info(f"Fetched details for {video_id}: {title}, {views} views")
             return title, views
+        logger.warning(f"No details found for video_id: {video_id}")
         return None, None
     except HttpError as e:
         logger.error(f"Error fetching details for {video_id}: {e}")
         return None, None
 
-# Fetch views for multiple video IDs
 def fetch_views(video_ids):
     if not youtube:
         logger.error("YouTube API client not initialized")
@@ -112,15 +113,15 @@ def fetch_views(video_ids):
         for item in response.get("items", []):
             video_id = item["id"]
             views[video_id] = int(item["statistics"]["viewCount"])
+        logger.info(f"Fetched views for {video_ids}: {views}")
         return views
     except HttpError as e:
         logger.error(f"Error fetching views for {video_ids}: {e}")
         return {}
 
-# Store views in database
 def store_views(video_id, views):
     try:
-        conn = sqlite3.connect("views.db", check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         now = datetime.now(IST)
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -128,16 +129,15 @@ def store_views(video_id, views):
         c.execute("INSERT INTO views (video_id, date, timestamp, views) VALUES (?, ?, ?, ?)",
                   (video_id, date, timestamp, views))
         conn.commit()
-        logger.debug(f"Stored views for {video_id}: {views} at {timestamp} IST")
+        logger.info(f"Stored views for {video_id}: {views} at {timestamp} IST")
     except sqlite3.Error as e:
         logger.error(f"Error storing views for {video_id}: {e}")
     finally:
         conn.close()
 
-# Clean up data older than two days
 def cleanup_old_data():
     try:
-        conn = sqlite3.connect("views.db", check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         two_days_ago = (datetime.now(IST) - timedelta(days=2)).strftime("%Y-%m-%d")
         c.execute("DELETE FROM views WHERE date < ?", (two_days_ago,))
@@ -148,7 +148,6 @@ def cleanup_old_data():
     finally:
         conn.close()
 
-# Fetch latest Sourav Joshi video
 def fetch_latest_sourav_joshi_video():
     if not youtube:
         logger.error("YouTube API client not initialized")
@@ -166,13 +165,13 @@ def fetch_latest_sourav_joshi_video():
             title = item["snippet"]["title"]
             published_at = datetime.strptime(item["snippet"]["publishedAt"], "%Y-%m-%dT%H:%M:%SZ")
             published_at = pytz.utc.localize(published_at).astimezone(IST)
+            logger.info(f"Fetched latest Sourav Joshi video: {video_id} - {title}")
             return video_id, title, published_at
         return None, None, None
     except HttpError as e:
         logger.error(f"Error fetching latest Sourav Joshi video: {e}")
         return None, None, None
 
-# Background tasks
 def background_tasks():
     last_sourav_check = None
     last_cleanup = None
@@ -186,7 +185,7 @@ def background_tasks():
             if current_time.hour == 8 and current_time.minute == 5 and (last_sourav_check is None or last_sourav_check.date() != current_date):
                 video_id, title, published_at = fetch_latest_sourav_joshi_video()
                 if video_id and published_at.date() == current_date:
-                    conn = sqlite3.connect("views.db", check_same_thread=False)
+                    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
                     c = conn.cursor()
                     c.execute("SELECT video_id FROM video_list WHERE video_id = ?", (video_id,))
                     if not c.fetchone():
@@ -214,14 +213,15 @@ def background_tasks():
                 seconds_to_wait += 300
             time.sleep(seconds_to_wait)
 
-            conn = sqlite3.connect("views.db", check_same_thread=False)
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             c = conn.cursor()
             c.execute("SELECT video_id FROM video_list")
             video_ids = [row[0] for row in c.fetchall()]
+            logger.info(f"Background task: Found video_ids: {video_ids}")
             conn.close()
 
             if not video_ids:
-                logger.debug("No videos to fetch views for")
+                logger.warning("No videos to fetch views for")
                 continue
 
             views_dict = fetch_views(video_ids)
@@ -229,7 +229,7 @@ def background_tasks():
                 if views:
                     store_views(video_id, views)
 
-            conn = sqlite3.connect("views.db", check_same_thread=False)
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             c = conn.cursor()
             c.execute("SELECT video_id, target_views, target_time FROM targets")
             targets = c.fetchall()
@@ -253,12 +253,11 @@ def background_tasks():
             logger.error(f"Background task error: {e}")
         time.sleep(300)
 
-# Start background tasks
 def start_background_tasks():
     thread = threading.Thread(target=background_tasks, daemon=True)
     thread.start()
+    logger.info("Started background tasks thread")
 
-# Process data with view gains and hourly gains
 def process_view_gains(data):
     processed_data = []
     hourly_views = {}
@@ -276,7 +275,6 @@ def process_view_gains(data):
         processed_data.append((timestamp, views, view_gain, hourly_gain))
     return processed_data
 
-# Calculate required views per interval
 def calculate_required_views_per_interval(latest_views, target_views, target_time_str, current_time):
     try:
         target_time = datetime.strptime(target_time_str, "%Y-%m-%dT%H:%M")
@@ -295,17 +293,44 @@ def calculate_required_views_per_interval(latest_views, target_views, target_tim
     except ValueError as e:
         return None, f"Invalid target time format: {e}"
 
-# Route for home page
 @app.route("/", methods=["GET", "POST"])
 def index():
     error_message = None
     videos = []
 
     try:
-        conn = sqlite3.connect("views.db", check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute("SELECT video_id, name, is_targetable FROM video_list ORDER BY video_id = 'hTSaweR8qMI' DESC")
         video_list = c.fetchall()
+        logger.info(f"Found videos in video_list: {video_list}")
+
+        # Check if views table has recent data
+        c.execute("SELECT video_id, MAX(timestamp) FROM views GROUP BY video_id")
+        view_timestamps = c.fetchall()
+        logger.info(f"Most recent view timestamps: {view_timestamps}")
+
+        # If no recent views (within last 10 minutes), force a fetch
+        now = datetime.now(IST)
+        video_ids_to_fetch = []
+        for video_id, _, _ in video_list:
+            recent = False
+            for vid, max_timestamp in view_timestamps:
+                if vid == video_id and max_timestamp:
+                    last_update = datetime.strptime(max_timestamp, "%Y-%m-%d %H:%M:%S")
+                    if (now - last_update).total_seconds() < 600:  # 10 minutes
+                        recent = True
+                        break
+            if not recent:
+                video_ids_to_fetch.append(video_id)
+
+        if video_ids_to_fetch:
+            logger.info(f"Forcing view fetch for videos: {video_ids_to_fetch}")
+            views_dict = fetch_views(video_ids_to_fetch)
+            for video_id, views in views_dict.items():
+                if views:
+                    store_views(video_id, views)
+
         c.execute("SELECT video_id, target_views, target_time, required_views_per_interval FROM targets")
         targets = {row[0]: {"target_views": row[1], "target_time": row[2], "required_views_per_interval": row[3]} for row in c.fetchall()}
 
@@ -337,6 +362,7 @@ def index():
                 "required_views_per_interval": target_info["required_views_per_interval"],
                 "target_message": None
             })
+            logger.info(f"Prepared data for video {video_id}: {len(daily_data)} days of data")
 
         if request.method == "POST" and "target_views" in request.form:
             video_id = request.form.get("video_id")
@@ -390,7 +416,6 @@ def index():
             error_message=str(e)
         )
 
-# Route to add a video
 @app.route("/add_video", methods=["POST"])
 def add_video():
     try:
@@ -411,7 +436,7 @@ def add_video():
             flash("Unable to fetch video data. Check the video link or API key.")
             return redirect(url_for("index"))
 
-        conn = sqlite3.connect("views.db", check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)",
                   (video_id, title[:50], is_targetable))
@@ -426,11 +451,10 @@ def add_video():
         flash(str(e))
         return redirect(url_for("index"))
 
-# Route to remove a video
 @app.route("/remove_video/<video_id>")
 def remove_video(video_id):
     try:
-        conn = sqlite3.connect("views.db", check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute("DELETE FROM video_list WHERE video_id = ?", (video_id,))
         c.execute("DELETE FROM views WHERE video_id = ?", (video_id,))
@@ -443,11 +467,10 @@ def remove_video(video_id):
         flash(str(e))
         return redirect(url_for("index"))
 
-# Route to export to Excel
 @app.route("/export/<video_id>")
 def export(video_id):
     try:
-        conn = sqlite3.connect("views.db", check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute("SELECT name FROM video_list WHERE video_id = ?", (video_id,))
         result = c.fetchone()
@@ -465,7 +488,7 @@ def export(video_id):
 
         conn.close()
 
-        excel_file = f"youtube_views_{video_id}.xlsx"
+        excel_file = f"/tmp/youtube_views_{video_id}.xlsx"
         df.to_excel(excel_file, sheet_name=name[:31], index=False, engine="openpyxl")
 
         return send_file(excel_file, as_attachment=True, download_name=f"{name}_views.xlsx")
@@ -478,8 +501,26 @@ def export(video_id):
         flash("Error exporting data.")
         return redirect(url_for("index"))
 
-# Initialize database and start background tasks
+# Initial fetch on startup
+def initial_fetch():
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("SELECT video_id FROM video_list")
+        video_ids = [row[0] for row in c.fetchall()]
+        conn.close()
+
+        if video_ids:
+            logger.info(f"Initial fetch for video_ids: {video_ids}")
+            views_dict = fetch_views(video_ids)
+            for video_id, views in views_dict.items():
+                if views:
+                    store_views(video_id, views)
+    except Exception as e:
+        logger.error(f"Initial fetch error: {e}")
+
 init_db()
+initial_fetch()
 start_background_tasks()
 
 if __name__ == "__main__":
