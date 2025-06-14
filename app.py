@@ -5,7 +5,7 @@ import pytz
 import sqlite3
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 import pandas as pd
 from flask import Flask, render_template, send_file, request, redirect, url_for, flash
@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Required for flash messages
+app.secret_key = os.urandom(24)  # For flash messages
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
@@ -30,8 +30,10 @@ def init_db():
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
+        # Views table with date column
         c.execute("""CREATE TABLE IF NOT EXISTS views (
             video_id TEXT,
+            date TEXT,
             timestamp TEXT,
             views INTEGER
         )""")
@@ -94,15 +96,17 @@ def fetch_views(video_ids):
         logger.error(f"Error fetching views for {video_ids}: {e}")
         return {}
 
-# Store views in database with IST timestamp
+# Store views in database with IST timestamp and date
 def store_views(video_id, views):
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
         ist = pytz.timezone("Asia/Kolkata")
-        timestamp = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
-        c.execute("INSERT INTO views (video_id, timestamp, views) VALUES (?, ?, ?)",
-                  (video_id, timestamp, views))
+        now = datetime.now(ist)
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        date = now.strftime("%Y-%m-%d")
+        c.execute("INSERT INTO views (video_id, date, timestamp, views) VALUES (?, ?, ?, ?)",
+                  (video_id, date, timestamp, views))
         conn.commit()
         logger.debug(f"Stored views for {video_id}: {views} at {timestamp} IST")
     except sqlite3.Error as e:
@@ -110,12 +114,59 @@ def store_views(video_id, views):
     finally:
         conn.close()
 
-# Background task to fetch views at 5-minute intervals
-def fetch_views_periodically():
+# Fetch latest video from Sourav Joshi Vlogs channel
+def fetch_latest_sourav_joshi_video():
+    if not youtube:
+        logger.error("YouTube API client not initialized")
+        return None, None, None
+    try:
+        response = youtube.search().list(
+            part="id,snippet",
+            channelId="UCj0Cw6g1v3q4ruQVWdQe2zw",  # Sourav Joshi Vlogs channel ID
+            maxResults=1,
+            order="date",
+            type="video"
+        ).execute()
+        for item in response.get("items", []):
+            video_id = item["id"]["videoId"]
+            title = item["snippet"]["title"]
+            published_at = datetime.strptime(item["snippet"]["publishedAt"], "%Y-%m-%dT%H:%M:%SZ")
+            published_at = pytz.utc.localize(published_at).astimezone(pytz.timezone("Asia/Kolkata"))
+            return video_id, title, published_at
+        return None, None, None
+    except HttpError as e:
+        logger.error(f"Error fetching latest Sourav Joshi video: {e}")
+        return None, None, None
+
+# Background task to fetch views and add Sourav Joshi video
+def background_tasks():
+    last_sourav_check = None
     while True:
         try:
             ist = pytz.timezone("Asia/Kolkata")
             now = datetime.now(ist)
+            current_time = now.time()
+            current_date = now.date()
+
+            # Check for new Sourav Joshi video at 8:05 AM IST
+            if current_time.hour == 8 and current_time.minute == 5 and (last_sourav_check is None or last_sourav_check.date() != current_date):
+                video_id, title, published_at = fetch_latest_sourav_joshi_video()
+                if video_id and published_at.date() == current_date:
+                    conn = sqlite3.connect("views.db", check_same_thread=False)
+                    c = conn.cursor()
+                    c.execute("SELECT video_id FROM video_list WHERE video_id = ?", (video_id,))
+                    if not c.fetchone():
+                        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)",
+                                  (video_id, title[:50], 1))  # Truncate title if too long
+                        conn.commit()
+                        logger.info(f"Added Sourav Joshi video: {video_id} - {title}")
+                        views = fetch_views([video_id])
+                        if views.get(video_id):
+                            store_views(video_id, views[video_id])
+                    conn.close()
+                last_sourav_check = now
+
+            # Fetch views for all videos at 5-minute intervals
             minutes = now.minute
             seconds = now.second
             minutes_to_next = (5 - (minutes % 5)) % 5
@@ -164,24 +215,23 @@ def fetch_views_periodically():
             logger.error(f"Background task error: {e}")
         time.sleep(300)
 
-# Start background task
-def start_background_task():
-    thread = threading.Thread(target=fetch_views_periodically, daemon=True)
+# Start background tasks
+def start_background_tasks():
+    thread = threading.Thread(target=background_tasks, daemon=True)
     thread.start()
 
-# Process data to include view gains
+# Process data to include view gains, grouped by date
 def process_view_gains(data):
     processed_data = []
     for i in range(len(data)):
-        timestamp, views = data[i]
-        view_gain = 0 if i == 0 else views - data[i-1][1]
+        date, timestamp, views = data[i]
+        view_gain = 0 if i == 0 or data[i-1][0] != date else views - data[i-1][2]
         processed_data.append((timestamp, views, view_gain))
     return processed_data
 
 # Calculate required views per 5-minute interval
 def calculate_required_views_per_interval(latest_views, target_views, target_time_str, current_time):
     try:
-        # Handle datetime-local format (e.g., "2025-06-14T23:45")
         target_time = datetime.strptime(target_time_str, "%Y-%m-%dT%H:%M")
         target_time = pytz.timezone("Asia/Kolkata").localize(target_time)
         time_diff_seconds = (target_time - current_time).total_seconds()
@@ -213,13 +263,19 @@ def index():
         targets = {row[0]: {"target_views": row[1], "target_time": row[2], "required_views_per_interval": row[3]} for row in c.fetchall()}
 
         for video_id, name, is_targetable in video_list:
-            c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp ASC", (video_id,))
-            video_data = process_view_gains(c.fetchall())
+            c.execute("SELECT DISTINCT date FROM views WHERE video_id = ? ORDER BY date DESC", (video_id,))
+            dates = [row[0] for row in c.fetchall()]
+            daily_data = {}
+            for date in dates:
+                c.execute("SELECT date, timestamp, views FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
+                          (video_id, date))
+                daily_data[date] = process_view_gains(c.fetchall())
+            
             target_info = targets.get(video_id, {"target_views": None, "target_time": None, "required_views_per_interval": None})
             videos.append({
                 "video_id": video_id,
                 "name": name,
-                "data": video_data,
+                "daily_data": daily_data,
                 "is_targetable": bool(is_targetable),
                 "target_views": target_info["target_views"],
                 "target_time": target_info["target_time"],
@@ -296,7 +352,6 @@ def add_video():
             flash("Invalid YouTube video link.")
             return redirect(url_for("index"))
 
-        # Validate video_id with YouTube API
         views = fetch_views([video_id])
         if not views.get(video_id):
             flash("Unable to fetch video data. Check the video link or API key.")
@@ -309,7 +364,6 @@ def add_video():
         conn.commit()
         conn.close()
 
-        # Store initial views
         store_views(video_id, views[video_id])
 
         return redirect(url_for("index"))
@@ -348,16 +402,16 @@ def export(video_id):
             return redirect(url_for("index"))
         name = result[0]
 
-        c.execute("SELECT timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (video_id,))
+        c.execute("SELECT date, timestamp, views FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
         rows = c.fetchall()
-        data = [{"Timestamp": row[0], "Views": row[1], "View Gain": 0 if i == 0 else row[1] - rows[i-1][1]}
+        data = [{"Date": row[0], "Timestamp": row[1], "Views": row[2], "View Gain": 0 if i == 0 or rows[i-1][0] != row[0] else row[2] - rows[i-1][2]}
                 for i, row in enumerate(rows)]
         df = pd.DataFrame(data)
 
         conn.close()
 
         excel_file = f"youtube_views_{video_id}.xlsx"
-        df.to_excel(excel_file, sheet_name=name, index=False, engine="openpyxl")
+        df.to_excel(excel_file, sheet_name=name[:31], index=False, engine="openpyxl")
 
         return send_file(excel_file, as_attachment=True, download_name=f"{name}_views.xlsx")
     except sqlite3.Error as e:
@@ -369,9 +423,9 @@ def export(video_id):
         flash("Error exporting data.")
         return redirect(url_for("index"))
 
-# Initialize database and start background task
+# Initialize database and start background tasks
 init_db()
-start_background_task()
+start_background_tasks()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
