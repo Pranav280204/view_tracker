@@ -1,220 +1,487 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Views Tracker</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.min.js"></script>
-    <style>
-        body {
-            background: linear-gradient(to right, #f8f9fa, #e9ecef);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .container {
-            max-width: 1000px;
-            margin-top: 40px;
-            padding: 20px;
-            background-color: #ffffff;
-            border-radius: 15px;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
-        }
-        .song-section {
-            margin-bottom: 50px;
-            border-top: 1px solid #dee2e6;
-            padding-top: 30px;
-        }
-        .table-responsive {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-        .error-message {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        .target-message {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        .target-result {
-            color: #28a745;
-            font-weight: bold;
-        }
-        .target-info {
-            color: #0d6efd;
-            font-weight: bold;
-        }
-        .form-section, .target-form {
-            background-color: #f1f3f5;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 30px;
-        }
-        .video-actions {
-            display: flex;
-            gap: 10px;
-        }
-        .video-thumbnail {
-            border-radius: 10px;
-            margin-top: 10px;
-            max-width: 200px;
-        }
-        .accordion-button {
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-<div class="container">
-    <h1 class="text-center mb-4">YouTube Views Tracker</h1>
-    {% with messages = get_flashed_messages() %}
-        {% if messages %}
-            {% for message in messages %}
-                <p class="error-message text-center">{{ message }}</p>
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-    {% if error_message %}
-        <p class="error-message text-center">{{ error_message }}</p>
-    {% endif %}
+import os
+import threading
+import logging
+import pytz
+import sqlite3
+import time
+import re
+from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlparse
+import pandas as pd
+from flask import Flask, render_template, send_file, request, redirect, url_for, flash
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
-    <!-- Add Video Form -->
-    <div class="form-section">
-        <h4>Add a YouTube Video</h4>
-        <form method="POST" action="/add_video">
-            <div class="mb-3">
-                <label for="video_link" class="form-label">YouTube Video Link:</label>
-                <input type="url" class="form-control" id="video_link" name="video_link" placeholder="e.g., https://www.youtube.com/watch?v=hTSaweR8qMI" required>
-            </div>
-            <div class="mb-3">
-                <label for="name" class="form-label">Video Name:</label>
-                <input type="text" class="form-control" id="name" name="name" placeholder="e.g., MrBeast" required>
-            </div>
-            <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="is_targetable" name="is_targetable">
-                <label class="form-check-label" for="is_targetable">Allow Target Setting</label>
-            </div>
-            <button type="submit" class="btn btn-primary">Add Video</button>
-        </form>
-    </div>
+app = Flask(__name__)
+app.secret_key = os.urandom(24)
 
-    <!-- Loop through videos -->
-    {% for video in videos %}
-    <div class="song-section">
-        <div class="d-flex justify-content-between align-items-center">
-            <div>
-                <h3>{{ video.name | escape }}</h3>
-                <img src="https://img.youtube.com/vi/{{ video.video_id }}/0.jpg" class="video-thumbnail img-fluid" alt="Thumbnail">
-            </div>
-            <div class="video-actions">
-                <a href="/export/{{ video.video_id }}" class="btn btn-outline-success">Export</a>
-                <a href="/remove_video/{{ video.video_id }}" class="btn btn-outline-danger" onclick="return confirm('Are you sure you want to remove this video?')">Remove</a>
-            </div>
-        </div>
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
 
-        <!-- Accordion for daily data -->
-        <div class="accordion mt-3" id="accordion_{{ video.video_id }}">
-            {% for date, data in video.daily_data.items() %}
-            <div class="accordion-item">
-                <h2 class="accordion-header" id="heading_{{ video.video_id }}_{{ date }}">
-                    <button class="accordion-button {% if loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_{{ video.video_id }}_{{ date }}" aria-expanded="{% if loop.first %}true{% else %}false{% endif %}" aria-controls="collapse_{{ video.video_id }}_{{ date }}">
-                        {{ date }}
-                    </button>
-                </h2>
-                <div id="collapse_{{ video.video_id }}_{{ date }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="heading_{{ video.video_id }}_{{ date }}" data-bs-parent="#accordion_{{ video.video_id }}">
-                    <div class="accordion-body">
-                        <!-- Data Table -->
-                        <div class="table-responsive">
-                            <table class="table table-striped table-hover">
-                                <thead class="table-dark">
-                                <tr>
-                                    <th>Timestamp (IST)</th>
-                                    <th>Views</th>
-                                    <th>View Gain</th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                {% for timestamp, views, view_gain in data[::-1] %}
-                                    <tr>
-                                        <td>{{ timestamp }}</td>
-                                        <td>{{ views | int }}</td>
-                                        <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray' }};">{{ view_gain | int }}</td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                        <!-- Chart -->
-                        <canvas id="viewsChart_{{ video.video_id }}_{{ date }}" class="mt-3" height="100"></canvas>
-                        <script>
-                            new Chart(document.getElementById('viewsChart_{{ video.video_id }}_{{ date }}'), {
-                                type: 'line',
-                                data: {
-                                    labels: [{% for timestamp, _, _ in data[::-1] %}"{{ timestamp | safe }}",{% endfor %}],
-                                    datasets: [{
-                                        label: 'Views',
-                                        data: [{% for _, views, _ in data[::-1] %}{{ views | int }},{% endfor %}],
-                                        borderColor: '#0d6efd',
-                                        backgroundColor: 'rgba(13, 110, 253, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'View Gain',
-                                        data: [{% for _, _, view_gain in data[::-1] %}{{ view_gain | int }},{% endfor %}],
-                                        borderColor: '#28a745',
-                                        backgroundColor: 'rgba(40, 167, 69, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    plugins: {
-                                        legend: { position: 'top' },
-                                        title: { display: true, text: '{{ video.name | safe }} - {{ date }} View Trends' }
-                                    },
-                                    scales: {
-                                        x: { title: { display: true, text: 'Timestamp (IST)' } },
-                                        y: { title: { display: true, text: 'Count' }, beginAtZero: false }
-                                    }
-                                }
-                            });
-                        </script>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
+# YouTube API setup
+API_KEY = os.getenv("YOUTUBE_API_KEY")
+if not API_KEY:
+    logger.error("YOUTUBE_API_KEY environment variable is not set")
+youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
-        <!-- Target Setting -->
-        {% if video.is_targetable %}
-        <div class="target-form mt-4">
-            <h5>Set Target Views and Time</h5>
-            <form method="POST" action="/">
-                <input type="hidden" name="video_id" value="{{ video.video_id }}">
-                <div class="mb-3">
-                    <label for="target_views_{{ video.video_id }}" class="form-label">Target Views:</label>
-                    <input type="number" class="form-control" id="target_views_{{ video.video_id }}" name="target_views" required>
-                </div>
-                <div class="mb-3">
-                    <label for="target_time_{{ video.video_id }}" class="form-label">Target Time:</label>
-                    <input type="datetime-local" class="form-control" id="target_time_{{ video.video_id }}" name="target_time" required>
-                </div>
-                <button type="submit" class="btn btn-success">Calculate</button>
-            </form>
+# SQLite database setup
+def init_db():
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        c.execute("""CREATE TABLE IF NOT EXISTS views (
+            video_id TEXT,
+            date TEXT,
+            timestamp TEXT,
+            views INTEGER
+        )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS video_list (
+            video_id TEXT PRIMARY KEY,
+            name TEXT,
+            is_targetable INTEGER
+        )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS targets (
+            video_id TEXT PRIMARY KEY,
+            target_views INTEGER,
+            target_time TEXT,
+            required_views_per_interval REAL
+        )""")
+        conn.commit()
+        logger.info("Successfully initialized database")
 
-            {% if video.target_message %}
-                <p class="target-message mt-3">{{ video.target_message }}</p>
-            {% elif video.required_views_per_interval is not none %}
-                <p class="target-result mt-3">Required views per 5-minute interval: {{ video.required_views_per_interval | round(2) }}</p>
-                <p class="target-info">Target Views: {{ video.target_views }}</p>
-                <p class="target-info">Target Time: {{ video.target_time }}</p>
-            {% endif %}
-        </div>
-        {% endif %}
-    </div>
-    {% endfor %}
-</div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+        c.execute("SELECT COUNT(*) FROM video_list")
+        if c.fetchone()[0] == 0:
+            default_videos = [
+                ("hTSaweR8qMI", "MrBeast", 1),
+                ("hxMNYkLN7tI", "Aj Ki Raat", 0),
+                ("ekr2nIex040", "Rose", 0)
+            ]
+            c.executemany("INSERT INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)", default_videos)
+            conn.commit()
+            logger.info("Initialized default videos")
+    except sqlite3.Error as e:
+        logger.error(f"Database initialization failed: {e}")
+    finally:
+        conn.close()
+
+# Extract video_id from YouTube URL
+def extract_video_id(video_link):
+    try:
+        parsed_url = urlparse(video_link)
+        if parsed_url.hostname in ("www.youtube.com", "youtube.com", "youtu.be"):
+            if parsed_url.hostname == "youtu.be":
+                return parsed_url.path[1:] if len(parsed_url.path) > 1 else None
+            query = parse_qs(parsed_url.query)
+            return query.get("v", [None])[0]
+        return None
+    except Exception as e:
+        logger.error(f"Error parsing video link: {e}")
+        return None
+
+# Fetch video title and views
+def fetch_video_details(video_id):
+    if not youtube:
+        logger.error("YouTube API client not initialized")
+        return None, None
+    try:
+        response = youtube.videos().list(part="snippet,statistics", id=video_id).execute()
+        for item in response.get("items", []):
+            title = item["snippet"]["title"]
+            views = int(item["statistics"]["viewCount"])
+            return title, views
+        return None, None
+    except HttpError as e:
+        logger.error(f"Error fetching details for {video_id}: {e}")
+        return None, None
+
+# Fetch views for multiple video IDs
+def fetch_views(video_ids):
+    if not youtube:
+        logger.error("YouTube API client not initialized")
+        return {}
+    try:
+        response = youtube.videos().list(part="statistics", id=",".join(video_ids)).execute()
+        views = {}
+        for item in response.get("items", []):
+            video_id = item["id"]
+            views[video_id] = int(item["statistics"]["viewCount"])
+        return views
+    except HttpError as e:
+        logger.error(f"Error fetching views for {video_ids}: {e}")
+        return {}
+
+# Store views in database
+def store_views(video_id, views):
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        ist = pytz.timezone("Asia/Kolkata")
+        now = datetime.now(ist)
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        date = now.strftime("%Y-%m-%d")
+        c.execute("INSERT INTO views (video_id, date, timestamp, views) VALUES (?, ?, ?, ?)",
+                  (video_id, date, timestamp, views))
+        conn.commit()
+        logger.debug(f"Stored views for {video_id}: {views} at {timestamp} IST")
+    except sqlite3.Error as e:
+        logger.error(f"Error storing views for {video_id}: {e}")
+    finally:
+        conn.close()
+
+# Clean up data older than two days
+def cleanup_old_data():
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        ist = pytz.timezone("Asia/Kolkata")
+        two_days_ago = (datetime.now(ist) - timedelta(days=2)).strftime("%Y-%m-%d")
+        c.execute("DELETE FROM views WHERE date < ?", (two_days_ago,))
+        conn.commit()
+        logger.info(f"Deleted view data older than {two_days_ago}")
+    except sqlite3.Error as e:
+        logger.error(f"Error cleaning up old data: {e}")
+    finally:
+        conn.close()
+
+# Fetch latest Sourav Joshi video
+def fetch_latest_sourav_joshi_video():
+    if not youtube:
+        logger.error("YouTube API client not initialized")
+        return None, None, None
+    try:
+        response = youtube.search().list(
+            part="id,snippet",
+            channelId="UCj0Cw6g1v3q4ruQVWdQe2zw",
+            maxResults=1,
+            order="date",
+            type="video"
+        ).execute()
+        for item in response.get("items", []):
+            video_id = item["id"]["videoId"]
+            title = item["snippet"]["title"]
+            published_at = datetime.strptime(item["snippet"]["publishedAt"], "%Y-%m-%dT%H:%M:%SZ")
+            published_at = pytz.utc.localize(published_at).astimezone(pytz.timezone("Asia/Kolkata"))
+            return video_id, title, published_at
+        return None, None, None
+    except HttpError as e:
+        logger.error(f"Error fetching latest Sourav Joshi video: {e}")
+        return None, None, None
+
+# Background tasks
+def background_tasks():
+    last_sourav_check = None
+    last_cleanup = None
+    while True:
+        try:
+            ist = pytz.timezone("Asia/Kolkata")
+            now = datetime.now(ist)
+            current_time = now.time()
+            current_date = now.date()
+
+            # Check for new Sourav Joshi video at 8:05 AM IST
+            if current_time.hour == 8 and current_time.minute == 5 and (last_sourav_check is None or last_sourav_check.date() != current_date):
+                video_id, title, published_at = fetch_latest_sourav_joshi_video()
+                if video_id and published_at.date() == current_date:
+                    conn = sqlite3.connect("views.db", check_same_thread=False)
+                    c = conn.cursor()
+                    c.execute("SELECT video_id FROM video_list WHERE video_id = ?", (video_id,))
+                    if not c.fetchone():
+                        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)",
+                                  (video_id, title[:50], 1))
+                        conn.commit()
+                        logger.info(f"Added Sourav Joshi video: {video_id} - {title}")
+                        views = fetch_views([video_id])
+                        if views.get(video_id):
+                            store_views(video_id, views[video_id])
+                    conn.close()
+                last_sourav_check = now
+
+            # Clean up old data daily at midnight
+            if current_time.hour == 0 and current_time.minute == 0 and (last_cleanup is None or last_cleanup.date() != current_date):
+                cleanup_old_data()
+                last_cleanup = now
+
+            # Fetch views at 5-minute intervals
+            minutes = now.minute
+            seconds = now.second
+            minutes_to_next = (5 - (minutes % 5)) % 5
+            seconds_to_wait = (minutes_to_next * 60) - seconds if minutes_to_next > 0 or seconds > 0 else 0
+            if seconds_to_wait <= 0:
+                seconds_to_wait += 300
+            logger.debug(f"Waiting {seconds_to_wait} seconds until the next 5-minute mark")
+            time.sleep(seconds_to_wait)
+
+            conn = sqlite3.connect("views.db", check_same_thread=False)
+            c = conn.cursor()
+            c.execute("SELECT video_id FROM video_list")
+            video_ids = [row[0] for row in c.fetchall()]
+            conn.close()
+
+            if not video_ids:
+                logger.debug("No videos to fetch views for")
+                continue
+
+            views_dict = fetch_views(video_ids)
+            for video_id, views in views_dict.items():
+                if views:
+                    store_views(video_id, views)
+
+            conn = sqlite3.connect("views.db", check_same_thread=False)
+            c = conn.cursor()
+            c.execute("SELECT video_id, target_views, target_time FROM targets")
+            targets = c.fetchall()
+            for video_id, target_views, target_time in targets:
+                if target_views and target_time:
+                    c.execute("SELECT views FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1", (video_id,))
+                    result = c.fetchone()
+                    if result:
+                        latest_views = result[0]
+                        current_time = datetime.now(ist)
+                        required_views_per_interval, _ = calculate_required_views_per_interval(
+                            latest_views, target_views, target_time, current_time
+                        )
+                        if required_views_per_interval is not None:
+                            c.execute("UPDATE targets SET required_views_per_interval = ? WHERE video_id = ?",
+                                      (required_views_per_interval, video_id))
+                            conn.commit()
+                            logger.debug(f"Updated required views for {video_id}: {required_views_per_interval}")
+            conn.close()
+        except Exception as e:
+            logger.error(f"Background task error: {e}")
+        time.sleep(300)
+
+# Start background tasks
+def start_background_tasks():
+    thread = threading.Thread(target=background_tasks, daemon=True)
+    thread.start()
+
+# Process data with view gains and hourly gains
+def process_view_gains(data):
+    processed_data = []
+    hourly_views = {}
+    for i, (date, timestamp, views) in enumerate(data):
+        view_gain = 0 if i == 0 or data[i-1][0] != date else views - data[i-1][2]
+        ts = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+        hour_key = (date, ts.hour)
+        
+        # Store first view of each hour
+        if hour_key not in hourly_views:
+            hourly_views[hour_key] = views
+        
+        # Calculate hourly gain by comparing with previous hour
+        prev_hour_key = (date, ts.hour - 1) if ts.hour > 0 else ((datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d"), 23)
+        hourly_gain = views - hourly_views.get(prev_hour_key, views) if prev_hour_key in hourly_views else 0
+        
+        processed_data.append((timestamp, views, view_gain, hourly_gain))
+    return processed_data
+
+# Calculate required views per interval
+def calculate_required_views_per_interval(latest_views, target_views, target_time_str, current_time):
+    try:
+        target_time = datetime.strptime(target_time_str, "%Y-%m-%dT%H:%M")
+        target_time = pytz.timezone("Asia/Kolkata").localize(target_time)
+        time_diff_seconds = (target_time - current_time).total_seconds()
+        if time_diff_seconds <= 0:
+            return None, "Target time must be in the future."
+        intervals_remaining = time_diff_seconds / 300
+        if intervals_remaining < 1:
+            return None, "Target time is too close (less than 5 minutes)."
+        views_needed = target_views - latest_views
+        if views_needed <= 0:
+            return None, "Target views already achieved or invalid."
+        required_views_per_interval = views_needed / intervals_remaining
+        return required_views_per_interval, None
+    except ValueError as e:
+        return None, f"Invalid target time format: {e}"
+
+# Route for home page
+@app.route("/", methods=["GET", "POST"])
+def index():
+    error_message = None
+    videos = []
+
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        c.execute("SELECT video_id, name, is_targetable FROM video_list ORDER BY video_id = 'hTSaweR8qMI' DESC")
+        video_list = c.fetchall()
+        c.execute("SELECT video_id, target_views, target_time, required_views_per_interval FROM targets")
+        targets = {row[0]: {"target_views": row[1], "target_time": row[2], "required_views_per_interval": row[3]} for row in c.fetchall()}
+
+        ist = pytz.timezone("Asia/Kolkata")
+        two_days_ago = (datetime.now(ist) - timedelta(days=2)).strftime("%Y-%m-%d")
+
+        for video_id, name, is_targetable in video_list:
+            c.execute("SELECT DISTINCT date FROM views WHERE video_id = ? AND date >= ? ORDER BY date DESC",
+                      (video_id, two_days_ago))
+            dates = [row[0] for row in c.fetchall()]
+            daily_data = {}
+            latest_views = None
+            for date in dates:
+                c.execute("SELECT date, timestamp, views FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
+                          (video_id, date))
+                data = c.fetchall()
+                daily_data[date] = process_view_gains(data)
+                if date == max(dates) and daily_data[date]:
+                    latest_views = data[-1][2]  # Latest views from most recent date
+            
+            target_info = targets.get(video_id, {"target_views": None, "target_time": None, "required_views_per_interval": None})
+            videos.append({
+                "video_id": video_id,
+                "name": name,
+                "daily_data": daily_data,
+                "latest_views": latest_views,
+                "is_targetable": bool(is_targetable),
+                "target_views": target_info["target_views"],
+                "target_time": target_info["target_time"],
+                "required_views_per_interval": target_info["required_views_per_interval"],
+                "target_message": None
+            })
+
+        if request.method == "POST" and "target_views" in request.form:
+            video_id = request.form.get("video_id")
+            target_views = request.form.get("target_views", type=int)
+            target_time = request.form.get("target_time")
+            if target_views and target_time:
+                c.execute("SELECT views FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1", (video_id,))
+                result = c.fetchone()
+                if result:
+                    latest_views = result[0]
+                    current_time = datetime.now(pytz.timezone("Asia/Kolkata"))
+                    required_views_per_interval, target_message = calculate_required_views_per_interval(
+                        latest_views, target_views, target_time, current_time
+                    )
+                    c.execute("INSERT OR REPLACE INTO targets (video_id, target_views, target_time, required_views_per_interval) VALUES (?, ?, ?, ?)",
+                              (video_id, target_views, target_time, required_views_per_interval))
+                    conn.commit()
+                    for video in videos:
+                        if video["video_id"] == video_id:
+                            video["target_views"] = target_views
+                            video["target_time"] = target_time
+                            video["required_views_per_interval"] = required_views_per_interval
+                            video["target_message"] = target_message
+                            break
+                else:
+                    flash("No view data available for this video.")
+            else:
+                flash("Target views and time are required.")
+
+        conn.close()
+
+        return render_template(
+            "index.html",
+            videos=videos,
+            error_message=error_message
+        )
+
+    except sqlite3.Error as e:
+        logger.error(f"Error in index route: {e}", exc_info=True)
+        init_db()
+        return render_template(
+            "index.html",
+            videos=[],
+            error_message=f"Database error: {e}"
+        )
+    except Exception as e:
+        logger.error(f"Error in index route: {e}", exc_info=True)
+        return render_template(
+            "index.html",
+            videos=[],
+            error_message=str(e)
+        )
+
+# Route to add a video
+@app.route("/add_video", methods=["POST"])
+def add_video():
+    try:
+        video_link = request.form.get("video_link")
+        is_targetable = 1 if request.form.get("is_targetable") == "on" else 0
+
+        if not video_link:
+            flash("Video link is required.")
+            return redirect(url_for("index"))
+
+        video_id = extract_video_id(video_link)
+        if not video_id:
+            flash("Invalid YouTube video link.")
+            return redirect(url_for("index"))
+
+        title, views = fetch_video_details(video_id)
+        if not title or views is None:
+            flash("Unable to fetch video data. Check the video link or API key.")
+            return redirect(url_for("index"))
+
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)",
+                  (video_id, title[:50], is_targetable))
+        conn.commit()
+        conn.close()
+
+        store_views(video_id, views)
+
+        return redirect(url_for("index"))
+    except Exception as e:
+        logger.error(f"Error adding video: {e}")
+        flash(str(e))
+        return redirect(url_for("index"))
+
+# Route to remove a video
+@app.route("/remove_video/<video_id>")
+def remove_video(video_id):
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        c.execute("DELETE FROM video_list WHERE video_id = ?", (video_id,))
+        c.execute("DELETE FROM views WHERE video_id = ?", (video_id,))
+        c.execute("DELETE FROM targets WHERE video_id = ?", (video_id,))
+        conn.commit()
+        conn.close()
+        return redirect(url_for("index"))
+    except Exception as e:
+        logger.error(f"Error removing video: {e}")
+        flash(str(e))
+        return redirect(url_for("index"))
+
+# Route to export to Excel
+@app.route("/export/<video_id>")
+def export(video_id):
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        c.execute("SELECT name FROM video_list WHERE video_id = ?", (video_id,))
+        result = c.fetchone()
+        if not result:
+            flash("Video not found.")
+            return redirect(url_for("index"))
+        name = result[0]
+
+        c.execute("SELECT date, timestamp, views FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
+        rows = c.fetchall()
+        data = [{"Date": row[0], "Timestamp": row[1], "Views": row[2], "View Gain": 0 if i == 0 or rows[i-1][0] != row[0] else row[2] - rows[i-1][2],
+                 "Hourly Gain": process_view_gains(rows)[i][3]}
+                for i, row in enumerate(rows)]
+        df = pd.DataFrame(data)
+
+        conn.close()
+
+        excel_file = f"youtube_views_{video_id}.xlsx"
+        df.to_excel(excel_file, sheet_name=name[:31], index=False, engine="openpyxl")
+
+        return send_file(excel_file, as_attachment=True, download_name=f"{name}_views.xlsx")
+    except sqlite3.Error as e:
+        logger.error(f"Database error in export route: {e}", exc_info=True)
+        flash("Database error exporting data.")
+        return redirect(url_for("index"))
+    except Exception as e:
+        logger.error(f"Error in export route: {e}", exc_info=True)
+        flash("Error exporting data.")
+        return redirect(url_for("index"))
+
+# Initialize database and start background tasks
+init_db()
+start_background_tasks()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
