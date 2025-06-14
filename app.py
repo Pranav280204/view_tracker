@@ -270,6 +270,7 @@ def process_view_gains(data):
         hourly_gain = views - hourly_views.get(prev_hour_key, views) if prev_hour_key in hourly_views else 0
         
         processed_data.append((timestamp, views, view_gain, hourly_gain))
+    logger.debug(f"Processed view gains: {processed_data}")
     return processed_data
 
 def calculate_required_views_per_interval(latest_views, target_views, target_time_str, current_time):
@@ -315,7 +316,7 @@ def index():
             for vid, max_timestamp in view_timestamps:
                 if vid == video_id and max_timestamp:
                     last_update = datetime.strptime(max_timestamp, "%Y-%m-%d %H:%M:%S")
-                    last_update = IST.localize(last_update)  # Make offset-aware
+                    last_update = IST.localize(last_update)
                     logger.debug(f"Comparing now: {now}, last_update: {last_update}")
                     if (now - last_update).total_seconds() < 600:  # 10 minutes
                         recent = True
@@ -334,17 +335,26 @@ def index():
         targets = {row[0]: {"target_views": row[1], "target_time": row[2], "required_views_per_interval": row[3]} for row in c.fetchall()}
 
         two_days_ago = (datetime.now(IST) - timedelta(days=2)).strftime("%Y-%m-%d")
+        logger.info(f"Two days ago filter: {two_days_ago}")
 
         for video_id, name, is_targetable in video_list:
+            # Debug: Log all view data for this video
+            c.execute("SELECT date, timestamp, views FROM views WHERE video_id = ? ORDER BY timestamp", (video_id,))
+            all_views = c.fetchall()
+            logger.info(f"All views for {video_id}: {all_views}")
+
             c.execute("SELECT DISTINCT date FROM views WHERE video_id = ? AND date >= ? ORDER BY date DESC",
                       (video_id, two_days_ago))
             dates = [row[0] for row in c.fetchall()]
+            logger.info(f"Dates for {video_id} after filter: {dates}")
+
             daily_data = {}
             latest_views = None
             for date in dates:
                 c.execute("SELECT date, timestamp, views FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
                           (video_id, date))
                 data = c.fetchall()
+                logger.debug(f"Raw data for {video_id} on {date}: {data}")
                 daily_data[date] = process_view_gains(data)
                 if date == max(dates) and daily_data[date]:
                     latest_views = data[-1][2]
