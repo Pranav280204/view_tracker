@@ -1,166 +1,168 @@
 <!DOCTYPE html>
-<html lang="en" class="dark:bg-gray-900">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="300">
     <title>YouTube Views Tracker</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.min.js" defer></script>
-    <script>
-        function toggleDarkMode() {
-            document.documentElement.classList.toggle('dark');
-            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
-        }
-        if (localStorage.getItem('theme') === 'dark') {
-            document.documentElement.classList.add('dark');
-        }
-    </script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.min.js"></script>
     <style>
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
+        body {
+            background: linear-gradient(to right, #f8f9fa, #e9ecef);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-        .pulse-animation {
-            animation: pulse 0.5s ease-in-out;
+        .container {
+            max-width: 1000px;
+            margin-top: 40px;
+            padding: 20px;
+            background-color: #ffffff;
+            border-radius: 15px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
         }
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 8px;
+        .song-section {
+            margin-bottom: 50px;
+            border-top: 1px solid #dee2e6;
+            padding-top: 30px;
         }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: #f1f1f1;
+        .table-responsive {
+            max-height: 400px;
+            overflow-y: auto;
         }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 4px;
+        .error-message {
+            color: #dc3545;
+            font-weight: bold;
         }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: #555;
+        .target-message {
+            color: #dc3545;
+            font-weight: bold;
         }
-        .dark .custom-scrollbar::-webkit-scrollbar-track {
-            background: #2d3748;
+        .target-result {
+            color: #28a745;
+            font-weight: bold;
         }
-        .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #a0aec0;
+        .target-info {
+            color: #0d6efd;
+            font-weight: bold;
+        }
+        .form-section, .target-form {
+            background-color: #f1f3f5;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        .video-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .video-thumbnail {
+            border-radius: 10px;
+            margin-top: 10px;
+            max-width: 200px;
+        }
+        .accordion-button {
+            font-weight: bold;
         }
     </style>
 </head>
-<body class="bg-gray-100 dark:bg-gray-900 font-sans text-gray-900 dark:text-gray-100 transition-colors duration-300">
-<div class="container mx-auto max-w-5xl p-6">
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-4xl font-extrabold text-center text-blue-600 dark:text-blue-400">YouTube Views Tracker</h1>
-        <button onclick="toggleDarkMode()" class="bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-4 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition">
-            Toggle Dark Mode
-        </button>
-    </div>
-
+<body>
+<div class="container">
+    <h1 class="text-center mb-4">YouTube Views Tracker</h1>
     {% with messages = get_flashed_messages() %}
         {% if messages %}
             {% for message in messages %}
-                <p class="text-red-500 dark:text-red-400 font-bold text-center mb-4">{{ message | escape }}</p>
+                <p class="error-message text-center">{{ message }}</p>
             {% endfor %}
         {% endif %}
     {% endwith %}
     {% if error_message %}
-        <p class="text-red-500 dark:text-red-400 font-bold text-center mb-4">{{ error_message | escape }}</p>
+        <p class="error-message text-center">{{ error_message }}</p>
     {% endif %}
 
-    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 mb-8">
-        <h2 class="text-2xl font-bold mb-4 text-gray-800 dark:text-gray-200">Add a YouTube Video</h2>
-        <form method="POST" action="/add_video" class="space-y-4">
-            <div>
-                <label for="video_link" class="block text-sm font-medium text-gray-700 dark:text-gray-300">YouTube Video Link</label>
-                <input type="url" id="video_link" name="video_link" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="e.g., https://www.youtube.com/watch?v=hTSaweR8qMI" required aria-required="true">
+    <!-- Add Video Form -->
+    <div class="form-section">
+        <h4>Add a YouTube Video</h4>
+        <form method="POST" action="/add_video">
+            <div class="mb-3">
+                <label for="video_link" class="form-label">YouTube Video Link:</label>
+                <input type="url" class="form-control" id="video_link" name="video_link" placeholder="e.g., https://www.youtube.com/watch?v=hTSaweR8qMI" required>
             </div>
-            <div class="flex items-center">
-                <input type="checkbox" id="is_targetable" name="is_targetable" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded">
-                <label for="is_targetable" class="ml-2 block text-sm text-gray-700 dark:text-gray-300">Allow Target Setting</label>
+            <div class="mb-3">
+                <label for="name" class="form-label">Video Name:</label>
+                <input type="text" class="form-control" id="name" name="name" placeholder="e.g., MrBeast" required>
             </div>
-            <button type="submit" class="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">Add Video</button>
+            <div class="mb-3 form-check">
+                <input type="checkbox" class="form-check-input" id="is_targetable" name="is_targetable">
+                <label class="form-check-label" for="is_targetable">Allow Target Setting</label>
+            </div>
+            <button type="submit" class="btn btn-primary">Add Video</button>
         </form>
     </div>
 
+    <!-- Loop through videos -->
     {% for video in videos %}
-    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 mb-8">
-        <div class="flex justify-between items-center mb-4">
+    <div class="song-section">
+        <div class="d-flex justify-content-between align-items-center">
             <div>
-                <h3 class="text-2xl font-bold text-gray-800 dark:text-gray-200">{{ video.name | escape }}</h3>
-                {% if video.latest_views is not none %}
-                    <p class="text-4xl font-extrabold text-blue-600 dark:text-blue-400 mt-2 pulse-animation" aria-live="polite">
-                        {{ "{:,}".format(video.latest_views | int) }} Views
-                    </p>
-                {% else %}
-                    <p class="text-xl text-gray-500 dark:text-gray-400 mt-2">No view data available</p>
-                {% endif %}
-                <img src="https://img.youtube.com/vi/{{ video.video_id }}/0.jpg" class="mt-4 rounded-lg max-w-xs" alt="Thumbnail for {{ video.name | escape }}" loading="lazy">
+                <h3>{{ video.name | escape }}</h3>
+                <img src="https://img.youtube.com/vi/{{ video.video_id }}/0.jpg" class="video-thumbnail img-fluid" alt="Thumbnail">
             </div>
-            <div class="flex space-x-2">
-                <a href="/export/{{ video.video_id }}" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">Export</a>
-                <a href="/remove_video/{{ video.video_id }}" class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition" onclick="return confirm('Are you sure you want to remove this video?')" aria-label="Remove {{ video.name | escape }}">Remove</a>
+            <div class="video-actions">
+                <a href="/export/{{ video.video_id }}" class="btn btn-outline-success">Export</a>
+                <a href="/remove_video/{{ video.video_id }}" class="btn btn-outline-danger" onclick="return confirm('Are you sure you want to remove this video?')">Remove</a>
             </div>
         </div>
 
-        <div class="space-y-4">
+        <!-- Accordion for daily data -->
+        <div class="accordion mt-3" id="accordion_{{ video.video_id }}">
             {% for date, data in video.daily_data.items() %}
-            <div class="border border-gray-200 dark:border-gray-700 rounded-lg">
-                <button class="w-full text-left px-4 py-3 bg-gray-100 dark:bg-gray-700 font-semibold text-gray-800 dark:text-gray-200 rounded-t-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition flex justify-between items-center" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_{{ video.video_id }}_{{ date }}" aria-expanded="{% if loop.first %}true{% else %}false{% endif %}" aria-controls="collapse_{{ video.video_id }}_{{ date }}">
-                    <span>{{ date }}</span>
-                    <span class="transform {% if not loop.first %}rotate-180{% endif %} transition-transform">▼</span>
-                </button>
-                <div id="collapse_{{ video.video_id }}_{{ date }}" class="collapse {% if loop.first %}show{% endif %}" aria-labelledby="heading_{{ video.video_id }}_{{ date }}">
-                    <div class="p-4">
-                        <div class="overflow-x-auto custom-scrollbar max-h-96">
-                            <table class="w-full text-sm text-gray-800 dark:text-gray-200">
-                                <thead class="bg-gray-200 dark:bg-gray-700 sticky top-0">
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="heading_{{ video.video_id }}_{{ date }}">
+                    <button class="accordion-button {% if loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_{{ video.video_id }}_{{ date }}" aria-expanded="{% if loop.first %}true{% else %}false{% endif %}" aria-controls="collapse_{{ video.video_id }}_{{ date }}">
+                        {{ date }}
+                    </button>
+                </h2>
+                <div id="collapse_{{ video.video_id }}_{{ date }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="heading_{{ video.video_id }}_{{ date }}" data-bs-parent="#accordion_{{ video.video_id }}">
+                    <div class="accordion-body">
+                        <!-- Data Table -->
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead class="table-dark">
                                 <tr>
-                                    <th class="px-4 py-2">Timestamp (IST)</th>
-                                    <th class="px-4 py-2">Views</th>
-                                    <th class="px-4 py-2">View Gain</th>
-                                    <th class="px-4 py-2">Hourly Gain</th>
+                                    <th>Timestamp (IST)</th>
+                                    <th>Views</th>
+                                    <th>View Gain</th>
                                 </tr>
                                 </thead>
                                 <tbody>
-                                {% for timestamp, views, view_gain, hourly_gain in data[::-1] %}
-                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-600">
-                                        <td class="px-4 py-2">{{ timestamp }}</td>
-                                        <td class="px-4 py-2">{{ "{:,}".format(views | int) }}</td>
-                                        <td class="px-4 py-2 {% if view_gain > 0 %}text-green-600 dark:text-green-400{% elif view_gain < 0 %}text-red-600 dark:text-red-400{% else %}text-gray-500 dark:text-gray-400{% endif %}">
-                                            {{ "{:+,}".format(view_gain | int) }}
-                                        </td>
-                                        <td class="px-4 py-2 {% if hourly_gain > 0 %}text-green-600 dark:text-green-400{% elif hourly_gain < 0 %}text-red-600 dark:text-red-400{% else %}text-gray-500 dark:text-gray-400{% endif %}">
-                                            {{ "{:+,}".format(hourly_gain | int) }}
-                                        </td>
+                                {% for timestamp, views, view_gain in data[::-1] %}
+                                    <tr>
+                                        <td>{{ timestamp }}</td>
+                                        <td>{{ views | int }}</td>
+                                        <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray' }};">{{ view_gain | int }}</td>
                                     </tr>
                                 {% endfor %}
                                 </tbody>
                             </table>
                         </div>
-                        <canvas id="viewsChart_{{ video.video_id }}_{{ date }}" class="mt-4" height="100" aria-label="View trends for {{ video.name | escape }} on {{ date }}"></canvas>
+                        <!-- Chart -->
+                        <canvas id="viewsChart_{{ video.video_id }}_{{ date }}" class="mt-3" height="100"></canvas>
                         <script>
                             new Chart(document.getElementById('viewsChart_{{ video.video_id }}_{{ date }}'), {
                                 type: 'line',
                                 data: {
-                                    labels: [{% for timestamp, _, _, _ in data[::-1] %}"{{ timestamp | safe }}",{% endfor %}],
+                                    labels: [{% for timestamp, _, _ in data[::-1] %}"{{ timestamp | safe }}",{% endfor %}],
                                     datasets: [{
                                         label: 'Views',
-                                        data: [{% for _, views, _, _ in data[::-1] %}{{ views | int }},{% endfor %}],
-                                        borderColor: '#3b82f6',
-                                        backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                                        data: [{% for _, views, _ in data[::-1] %}{{ views | int }},{% endfor %}],
+                                        borderColor: '#0d6efd',
+                                        backgroundColor: 'rgba(13, 110, 253, 0.2)',
                                         fill: true,
                                         tension: 0.4
                                     }, {
                                         label: 'View Gain',
-                                        data: [{% for _, _, view_gain, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
-                                        borderColor: '#10b981',
-                                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'Hourly Gain',
-                                        data: [{% for _, _, _, hourly_gain in data[::-1] %}{{ hourly_gain | int }},{% endfor %}],
-                                        borderColor: '#f59e0b',
-                                        backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                                        data: [{% for _, _, view_gain in data[::-1] %}{{ view_gain | int }},{% endfor %}],
+                                        borderColor: '#28a745',
+                                        backgroundColor: 'rgba(40, 167, 69, 0.2)',
                                         fill: true,
                                         tension: 0.4
                                     }]
@@ -169,14 +171,12 @@
                                     responsive: true,
                                     plugins: {
                                         legend: { position: 'top' },
-                                        title: { display: true, text: '{{ video.name | safe }} - {{ date }} View Trends' },
-                                        tooltip: { mode: 'index', intersect: false }
+                                        title: { display: true, text: '{{ video.name | safe }} - {{ date }} View Trends' }
                                     },
                                     scales: {
                                         x: { title: { display: true, text: 'Timestamp (IST)' } },
                                         y: { title: { display: true, text: 'Count' }, beginAtZero: false }
-                                    },
-                                    interaction: { mode: 'nearest', axis: 'x', intersect: false }
+                                    }
                                 }
                             });
                         </script>
@@ -186,41 +186,35 @@
             {% endfor %}
         </div>
 
+        <!-- Target Setting -->
         {% if video.is_targetable %}
-        <div class="mt-6 bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-            <h4 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Set Target Views and Time</h4>
-            <form method="POST" action="/" class="space-y-4">
+        <div class="target-form mt-4">
+            <h5>Set Target Views and Time</h5>
+            <form method="POST" action="/">
                 <input type="hidden" name="video_id" value="{{ video.video_id }}">
-                <div>
-                    <label for="target_views_{{ video.video_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Target Views</label>
-                    <input type="number" id="target_views_{{ video.video_id }}" name="target_views" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500" required aria-required="true">
+                <div class="mb-3">
+                    <label for="target_views_{{ video.video_id }}" class="form-label">Target Views:</label>
+                    <input type="number" class="form-control" id="target_views_{{ video.video_id }}" name="target_views" required>
                 </div>
-                <div>
-                    <label for="target_time_{{ video.video_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Target Time</label>
-                    <input type="datetime-local" id="target_time_{{ video.video_id }}" name="target_time" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500" required aria-required="true">
+                <div class="mb-3">
+                    <label for="target_time_{{ video.video_id }}" class="form-label">Target Time:</label>
+                    <input type="datetime-local" class="form-control" id="target_time_{{ video.video_id }}" name="target_time" required>
                 </div>
-                <button type="submit" class="w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">Calculate</button>
+                <button type="submit" class="btn btn-success">Calculate</button>
             </form>
+
             {% if video.target_message %}
-                <p class="text-red-500 dark:text-red-400 font-bold mt-4">{{ video.target_message | escape }}</p>
+                <p class="target-message mt-3">{{ video.target_message }}</p>
             {% elif video.required_views_per_interval is not none %}
-                <p class="text-green-600 dark:text-green-400 font-bold mt-4">Required views per 5-minute interval: {{ "{:.2f}".format(video.required_views_per_interval) }}</p>
-                <p class="text-blue-600 dark:text-blue-400 mt-1">Target Views: {{ "{:,}".format(video.target_views | int) }}</p>
-                <p class="text-blue-600 dark:text-blue-400">Target Time: {{ video.target_time }}</p>
+                <p class="target-result mt-3">Required views per 5-minute interval: {{ video.required_views_per_interval | round(2) }}</p>
+                <p class="target-info">Target Views: {{ video.target_views }}</p>
+                <p class="target-info">Target Time: {{ video.target_time }}</p>
             {% endif %}
         </div>
         {% endif %}
     </div>
     {% endfor %}
 </div>
-<script>
-    document.querySelectorAll('.pulse-animation').forEach(el => {
-        setInterval(() => {
-            el.classList.remove('pulse-animation');
-            void el.offsetWidth;
-            el.classList.add('pulse-animation');
-        }, 5000);
-    });
-</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
