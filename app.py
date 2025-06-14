@@ -125,11 +125,11 @@ def store_views(video_id, views):
         c = conn.cursor()
         now = datetime.now(IST)
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-        date = now.strftime("%Y-%m-%d")
+        date = now.strftime("%Y-%m-%d").strip()  # Ensure no extra whitespace
         c.execute("INSERT INTO views (video_id, date, timestamp, views) VALUES (?, ?, ?, ?)",
                   (video_id, date, timestamp, views))
         conn.commit()
-        logger.info(f"Stored views for {video_id}: {views} at {timestamp} IST")
+        logger.info(f"Stored views for {video_id}: {views} at {timestamp} IST (date: {date})")
     except sqlite3.Error as e:
         logger.error(f"Error storing views for {video_id}: {e}")
     finally:
@@ -343,10 +343,17 @@ def index():
             all_views = c.fetchall()
             logger.info(f"All views for {video_id}: {all_views}")
 
+            # First try to get dates with the filter
             c.execute("SELECT DISTINCT date FROM views WHERE video_id = ? AND date >= ? ORDER BY date DESC",
                       (video_id, two_days_ago))
             dates = [row[0] for row in c.fetchall()]
             logger.info(f"Dates for {video_id} after filter: {dates}")
+
+            # If no dates found, try without the filter to debug
+            if not dates:
+                c.execute("SELECT DISTINCT date FROM views WHERE video_id = ? ORDER BY date DESC", (video_id,))
+                dates = [row[0] for row in c.fetchall()]
+                logger.info(f"Dates for {video_id} without filter: {dates}")
 
             daily_data = {}
             latest_views = None
