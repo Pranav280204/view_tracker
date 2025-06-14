@@ -5,20 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube Views Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.min.js" defer></script>
     <script>
-        // Dark mode toggle
         function toggleDarkMode() {
             document.documentElement.classList.toggle('dark');
             localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
         }
-        // Load saved theme
         if (localStorage.getItem('theme') === 'dark') {
             document.documentElement.classList.add('dark');
         }
     </script>
     <style>
-        /* Animation for view updates */
         @keyframes pulse {
             0% { transform: scale(1); }
             50% { transform: scale(1.1); }
@@ -27,7 +24,6 @@
         .pulse-animation {
             animation: pulse 0.5s ease-in-out;
         }
-        /* Custom scrollbar */
         .custom-scrollbar::-webkit-scrollbar {
             width: 8px;
         }
@@ -58,7 +54,6 @@
         </button>
     </div>
 
-    <!-- Flash messages -->
     {% with messages = get_flashed_messages() %}
         {% if messages %}
             {% for message in messages %}
@@ -70,7 +65,6 @@
         <p class="text-red-500 dark:text-red-400 font-bold text-center mb-4">{{ error_message | escape }}</p>
     {% endif %}
 
-    <!-- Add Video Form -->
     <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 mb-8">
         <h2 class="text-2xl font-bold mb-4 text-gray-800 dark:text-gray-200">Add a YouTube Video</h2>
         <form method="POST" action="/add_video" class="space-y-4">
@@ -86,7 +80,6 @@
         </form>
     </div>
 
-    <!-- Loop through videos -->
     {% for video in videos %}
     <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 mb-8">
         <div class="flex justify-between items-center mb-4">
@@ -107,7 +100,6 @@
             </div>
         </div>
 
-        <!-- Accordion for daily data -->
         <div class="space-y-4">
             {% for date, data in video.daily_data.items() %}
             <div class="border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -117,7 +109,6 @@
                 </button>
                 <div id="collapse_{{ video.video_id }}_{{ date }}" class="collapse {% if loop.first %}show{% endif %}" aria-labelledby="heading_{{ video.video_id }}_{{ date }}">
                     <div class="p-4">
-                        <!-- Data Table -->
                         <div class="overflow-x-auto custom-scrollbar max-h-96">
                             <table class="w-full text-sm text-gray-800 dark:text-gray-200">
                                 <thead class="bg-gray-200 dark:bg-gray-700 sticky top-0">
@@ -144,7 +135,6 @@
                                 </tbody>
                             </table>
                         </div>
-                        <!-- Chart -->
                         <canvas id="viewsChart_{{ video.video_id }}_{{ date }}" class="mt-4" height="100" aria-label="View trends for {{ video.name | escape }} on {{ date }}"></canvas>
                         <script>
                             new Chart(document.getElementById('viewsChart_{{ video.video_id }}_{{ date }}'), {
@@ -195,7 +185,6 @@
             {% endfor %}
         </div>
 
-        <!-- Target Setting -->
         {% if video.is_targetable %}
         <div class="mt-6 bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
             <h4 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Set Target Views and Time</h4>
@@ -224,11 +213,10 @@
     {% endfor %}
 </div>
 <script>
-    // Simulate view update animation
     document.querySelectorAll('.pulse-animation').forEach(el => {
         setInterval(() => {
             el.classList.remove('pulse-animation');
-            void el.offsetWidth; // Trigger reflow
+            void el.offsetWidth;
             el.classList.add('pulse-animation');
         }, 5000);
     });
