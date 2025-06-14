@@ -31,7 +31,7 @@ if not API_KEY:
     logger.error("YOUTUBE_API_KEY environment variable is not set")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
-# Database path (use /tmp on Render for persistence during runtime)
+# Database path
 DB_PATH = os.getenv("DB_PATH", "/tmp/views.db")
 
 def init_db():
@@ -181,7 +181,6 @@ def background_tasks():
             current_time = now.time()
             current_date = now.date()
 
-            # Check for new Sourav Joshi video at 8:05 AM IST
             if current_time.hour == 8 and current_time.minute == 5 and (last_sourav_check is None or last_sourav_check.date() != current_date):
                 video_id, title, published_at = fetch_latest_sourav_joshi_video()
                 if video_id and published_at.date() == current_date:
@@ -199,12 +198,10 @@ def background_tasks():
                     conn.close()
                 last_sourav_check = now
 
-            # Clean up old data daily at midnight
             if current_time.hour == 0 and current_time.minute == 0 and (last_cleanup is None or last_cleanup.date() != current_date):
                 cleanup_old_data()
                 last_cleanup = now
 
-            # Fetch views at 5-minute intervals
             minutes = now.minute
             seconds = now.second
             minutes_to_next = (5 - (minutes % 5)) % 5
@@ -318,6 +315,8 @@ def index():
             for vid, max_timestamp in view_timestamps:
                 if vid == video_id and max_timestamp:
                     last_update = datetime.strptime(max_timestamp, "%Y-%m-%d %H:%M:%S")
+                    last_update = IST.localize(last_update)  # Make offset-aware
+                    logger.debug(f"Comparing now: {now}, last_update: {last_update}")
                     if (now - last_update).total_seconds() < 600:  # 10 minutes
                         recent = True
                         break
@@ -394,6 +393,7 @@ def index():
 
         conn.close()
 
+        logger.info(f"Rendering template with videos: {[video['video_id'] for video in videos]}")
         return render_template(
             "index.html",
             videos=videos,
@@ -501,7 +501,6 @@ def export(video_id):
         flash("Error exporting data.")
         return redirect(url_for("index"))
 
-# Initial fetch on startup
 def initial_fetch():
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
