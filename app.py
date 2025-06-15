@@ -10,7 +10,12 @@ import pandas as pd
 from flask import Flask, render_template, send_file, request, redirect, url_for, flash
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import psutil
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
+    logging.warning("psutil module not found; memory monitoring disabled")
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # For flash messages
@@ -156,9 +161,12 @@ def background_tasks():
     last_sourav_check = None
     while True:
         try:
-            process = psutil.Process()
-            memory_info = process.memory_info()
-            logger.debug(f"Memory usage: RSS={memory_info.rss / 1024 / 1024:.2f} MB, VMS={memory_info.vms / 1024 / 1024:.2f} MB")
+            if psutil:
+                process = psutil.Process()
+                memory_info = process.memory_info()
+                logger.debug(f"Memory usage: RSS={memory_info.rss / 1024 / 1024:.2f} MB, VMS={memory_info.vms / 1024 / 1024:.2f} MB")
+            else:
+                logger.debug("Memory monitoring skipped: psutil not available")
 
             ist = pytz.timezone("Asia/Kolkata")
             now = datetime.now(ist)
@@ -181,14 +189,19 @@ def background_tasks():
                             store_views(video_id, views[video_id])
                 last_sourav_check = now
 
-            # Fetch views for all videos at 5-minute intervals
-            minutes = now.minute
-            seconds = now.second
-            minutes_to_next = (5 - (minutes % 5)) % 5
-            seconds_to_wait = (minutes_to_next * 60) - seconds if minutes_to_next > 0 or seconds > 0 else 300
-            logger.debug(f"Waiting {seconds_to_wait} seconds until the next 5-minute mark")
+            # Calculate time until next 5-minute mark
+            current_minutes = now.minute
+            current_seconds = now.second + (now.microsecond / 1_000_000)  # Include microseconds for precision
+            minutes_to_next = 5 - (current_minutes % 5)
+            if minutes_to_next == 5:
+                minutes_to_next = 0  # At 5-minute mark, wait full 5 minutes
+            seconds_to_wait = (minutes_to_next * 60) - current_seconds
+            if seconds_to_wait <= 0:
+                seconds_to_wait += 300  # If at or past the mark, wait 5 minutes
+            logger.debug(f"Current time: {now}, minutes_to_next: {minutes_to_next}, seconds_to_wait: {seconds_to_wait:.2f}")
             time.sleep(seconds_to_wait)
 
+            # Fetch views for all videos
             c = db_conn.cursor()
             c.execute("SELECT video_id FROM video_list")
             video_ids = [row[0] for row in c.fetchall()]
