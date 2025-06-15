@@ -74,7 +74,7 @@
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             {% for category, message in messages %}
-                <p class="{{ 'error-message' if category == 'error' else 'success-message' }} text-center">{{ message }}</p>
+                <p class="{{ 'error-message' if category == 'error' else 'success-message' }} text-center">{{ message | escape }}</p>
             {% endfor %}
         {% endif %}
     {% endwith %}
@@ -85,7 +85,7 @@
     <!-- Add Video Form -->
     <div class="form-section">
         <h4>Add a YouTube Video</h4>
-        <form method="POST" action="/add_video">
+        <form method="POST" action="/add_video" id="add-video-form">
             <div class="mb-3">
                 <label for="video_link" class="form-label">YouTube Video Link:</label>
                 <input type="url" class="form-control" id="video_link" name="video_link" placeholder="e.g., https://www.youtube.com/watch?v=hTSaweR8qMI" required>
@@ -215,11 +215,11 @@
         {% if video.is_targetable %}
         <div class="target-form mt-4">
             <h5>Set Target Views and Time</h5>
-            <form method="POST" action="/">
+            <form method="POST" action="/" onsubmit="return validateTargetForm('{{ video.video_id }}')">
                 <input type="hidden" name="video_id" value="{{ video.video_id }}">
                 <div class="mb-3">
                     <label for="target_views_{{ video.video_id }}" class="form-label">Target Views:</label>
-                    <input type="number" class="form-control" id="target_views_{{ video.video_id }}" name="target_views" required>
+                    <input type="number" class="form-control" id="target_views_{{ video.video_id }}" name="target_views" min="1" required>
                 </div>
                 <div class="mb-3">
                     <label for="target_time_{{ video.video_id }}" class="form-label">Target Time:</label>
@@ -241,5 +241,26 @@
     {% endfor %}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function validateTargetForm(videoId) {
+        const targetViews = document.getElementById(`target_views_${videoId}`).value;
+        if (!targetViews || isNaN(targetViews) || parseInt(targetViews) <= 0) {
+            alert("Target views must be a positive number.");
+            return false;
+        }
+        const targetTime = document.getElementById(`target_time_${videoId}`).value;
+        if (!targetTime) {
+            alert("Target time is required.");
+            return false;
+        }
+        const now = new Date();
+        const targetDate = new Date(targetTime);
+        if (targetDate <= now) {
+            alert("Target time must be in the future.");
+            return false;
+        }
+        return true;
+    }
+</script>
 </body>
 </html>
