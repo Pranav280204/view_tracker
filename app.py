@@ -4,7 +4,6 @@ import logging
 import pytz
 import sqlite3
 import time
-import re
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 import pandas as pd
@@ -80,6 +79,20 @@ def extract_video_id(video_link):
         logger.error(f"Error parsing video link: {e}")
         return None
 
+# Fetch video title from YouTube API
+def fetch_video_title(video_id):
+    if not youtube:
+        logger.error("YouTube API client not initialized")
+        return None
+    try:
+        response = youtube.videos().list(part="snippet", id=video_id).execute()
+        for item in response.get("items", []):
+            return item["snippet"]["title"][:50]  # Truncate to 50 characters
+        return None
+    except HttpError as e:
+        logger.error(f"Error fetching title for {video_id}: {e}")
+        return None
+
 # Fetch views for multiple video IDs
 def fetch_views(video_ids):
     if not youtube:
@@ -129,7 +142,7 @@ def fetch_latest_sourav_joshi_video():
         ).execute()
         for item in response.get("items", []):
             video_id = item["id"]["videoId"]
-            title = item["snippet"]["title"]
+            title = item["snippet"]["title"][:50]  # Truncate title
             published_at = datetime.strptime(item["snippet"]["publishedAt"], "%Y-%m-%dT%H:%M:%SZ")
             published_at = pytz.utc.localize(published_at).astimezone(pytz.timezone("Asia/Kolkata"))
             return video_id, title, published_at
@@ -157,7 +170,7 @@ def background_tasks():
                     c.execute("SELECT video_id FROM video_list WHERE video_id = ?", (video_id,))
                     if not c.fetchone():
                         c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)",
-                                  (video_id, title[:50], 1))  # Truncate title if too long
+                                  (video_id, title, 1))
                         conn.commit()
                         logger.info(f"Added Sourav Joshi video: {video_id} - {title}")
                         views = fetch_views([video_id])
@@ -170,9 +183,7 @@ def background_tasks():
             minutes = now.minute
             seconds = now.second
             minutes_to_next = (5 - (minutes % 5)) % 5
-            seconds_to_wait = (minutes_to_next * 60) - seconds if minutes_to_next > 0 or seconds > 0 else 0
-            if seconds_to_wait <= 0:
-                seconds_to_wait += 300
+            seconds_to_wait = (minutes_to_next * 60) - seconds if minutes_to_next > 0 or seconds > 0 else 300
             logger.debug(f"Waiting {seconds_to_wait} seconds until the next 5-minute mark")
             time.sleep(seconds_to_wait)
 
@@ -213,20 +224,34 @@ def background_tasks():
             conn.close()
         except Exception as e:
             logger.error(f"Background task error: {e}")
-        time.sleep(300)
 
 # Start background tasks
 def start_background_tasks():
     thread = threading.Thread(target=background_tasks, daemon=True)
     thread.start()
 
-# Process data to include view gains, grouped by date
-def process_view_gains(data):
+# Process data to include view gains and hourly gains
+def process_view_gains(video_id, data):
     processed_data = []
-    for i in range(len(data)):
-        date, timestamp, views = data[i]
+    conn = sqlite3.connect("views.db", check_same_thread=False)
+    c = conn.cursor()
+    for i, (date, timestamp, views) in enumerate(data):
         view_gain = 0 if i == 0 or data[i-1][0] != date else views - data[i-1][2]
-        processed_data.append((timestamp, views, view_gain))
+        # Calculate hourly gain
+        hourly_gain = None
+        timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+        one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("""
+            SELECT views FROM views 
+            WHERE video_id = ? AND date = ? AND timestamp <= ? 
+            ORDER BY timestamp DESC LIMIT 1
+        """, (video_id, date, one_hour_ago))
+        result = c.fetchone()
+        if result:
+            previous_views = result[0]
+            hourly_gain = views - previous_views
+        processed_data.append((timestamp, views, view_gain, hourly_gain))
+    conn.close()
     return processed_data
 
 # Calculate required views per 5-minute interval
@@ -269,7 +294,7 @@ def index():
             for date in dates:
                 c.execute("SELECT date, timestamp, views FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
                           (video_id, date))
-                daily_data[date] = process_view_gains(c.fetchall())
+                daily_data[date] = process_view_gains(video_id, c.fetchall())
             
             target_info = targets.get(video_id, {"target_views": None, "target_time": None, "required_views_per_interval": None})
             videos.append({
@@ -340,16 +365,20 @@ def index():
 def add_video():
     try:
         video_link = request.form.get("video_link")
-        name = request.form.get("name")
         is_targetable = 1 if request.form.get("is_targetable") == "on" else 0
 
-        if not video_link or not name:
-            flash("Video link and name are required.")
+        if not video_link:
+            flash("Video link is required.")
             return redirect(url_for("index"))
 
         video_id = extract_video_id(video_link)
         if not video_id:
             flash("Invalid YouTube video link.")
+            return redirect(url_for("index"))
+
+        title = fetch_video_title(video_id)
+        if not title:
+            flash("Unable to fetch video title. Check the video link or API key.")
             return redirect(url_for("index"))
 
         views = fetch_views([video_id])
@@ -360,12 +389,13 @@ def add_video():
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
         c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)",
-                  (video_id, name, is_targetable))
+                  (video_id, title, is_targetable))
         conn.commit()
         conn.close()
 
         store_views(video_id, views[video_id])
 
+        flash("Video added successfully.", "success")
         return redirect(url_for("index"))
     except Exception as e:
         logger.error(f"Error adding video: {e}")
@@ -383,6 +413,7 @@ def remove_video(video_id):
         c.execute("DELETE FROM targets WHERE video_id = ?", (video_id,))
         conn.commit()
         conn.close()
+        flash("Video removed successfully.", "success")
         return redirect(url_for("index"))
     except Exception as e:
         logger.error(f"Error removing video: {e}")
@@ -404,8 +435,29 @@ def export(video_id):
 
         c.execute("SELECT date, timestamp, views FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
         rows = c.fetchall()
-        data = [{"Date": row[0], "Timestamp": row[1], "Views": row[2], "View Gain": 0 if i == 0 or rows[i-1][0] != row[0] else row[2] - rows[i-1][2]}
-                for i, row in enumerate(rows)]
+        data = []
+        for i, row in enumerate(rows):
+            date, timestamp, views = row
+            view_gain = 0 if i == 0 or rows[i-1][0] != date else views - rows[i-1][2]
+            hourly_gain = None
+            timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+            one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+            c.execute("""
+                SELECT views FROM views 
+                WHERE video_id = ? AND date = ? AND timestamp <= ? 
+                ORDER BY timestamp DESC LIMIT 1
+            """, (video_id, date, one_hour_ago))
+            result = c.fetchone()
+            if result:
+                previous_views = result[0]
+                hourly_gain = views - previous_views
+            data.append({
+                "Date": date,
+                "Timestamp": timestamp,
+                "Views": views,
+                "View Gain": view_gain,
+                "Hourly Gain": hourly_gain if hourly_gain is not None else 0
+            })
         df = pd.DataFrame(data)
 
         conn.close()
@@ -429,4 +481,3 @@ start_background_tasks()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    
