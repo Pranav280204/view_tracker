@@ -29,7 +29,6 @@ def init_db():
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
-        # Views table with date column
         c.execute("""CREATE TABLE IF NOT EXISTS views (
             video_id TEXT,
             date TEXT,
@@ -237,7 +236,6 @@ def process_view_gains(video_id, data):
     c = conn.cursor()
     for i, (date, timestamp, views) in enumerate(data):
         view_gain = 0 if i == 0 or data[i-1][0] != date else views - data[i-1][2]
-        # Calculate hourly gain
         hourly_gain = None
         timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -257,6 +255,8 @@ def process_view_gains(video_id, data):
 # Calculate required views per 5-minute interval
 def calculate_required_views_per_interval(latest_views, target_views, target_time_str, current_time):
     try:
+        if target_views is None or latest_views is None:
+            return None, "Invalid view counts provided."
         target_time = datetime.strptime(target_time_str, "%Y-%m-%dT%H:%M")
         target_time = pytz.timezone("Asia/Kolkata").localize(target_time)
         time_diff_seconds = (target_time - current_time).total_seconds()
@@ -310,31 +310,43 @@ def index():
 
         if request.method == "POST" and "target_views" in request.form:
             video_id = request.form.get("video_id")
-            target_views = request.form.get("target_views", type=int)
+            target_views = request.form.get("target_views")
             target_time = request.form.get("target_time")
-            if target_views and target_time:
-                c.execute("SELECT views FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1", (video_id,))
-                result = c.fetchone()
-                if result:
-                    latest_views = result[0]
-                    current_time = datetime.now(pytz.timezone("Asia/Kolkata"))
-                    required_views_per_interval, target_message = calculate_required_views_per_interval(
-                        latest_views, target_views, target_time, current_time
-                    )
-                    c.execute("INSERT OR REPLACE INTO targets (video_id, target_views, target_time, required_views_per_interval) VALUES (?, ?, ?, ?)",
-                              (video_id, target_views, target_time, required_views_per_interval))
-                    conn.commit()
-                    for video in videos:
-                        if video["video_id"] == video_id:
-                            video["target_views"] = target_views
-                            video["target_time"] = target_time
-                            video["required_views_per_interval"] = required_views_per_interval
-                            video["target_message"] = target_message
-                            break
+            logger.debug(f"Received target form: video_id={video_id}, target_views={target_views}, target_time={target_time}")
+            try:
+                target_views = int(target_views) if target_views else None
+                if not target_views or target_views <= 0:
+                    flash("Target views must be a positive number.", "error")
+                elif not target_time:
+                    flash("Target time is required.", "error")
                 else:
-                    flash("No view data available for this video.")
-            else:
-                flash("Target views and time are required.")
+                    c.execute("SELECT views FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1", (video_id,))
+                    result = c.fetchone()
+                    if result:
+                        latest_views = result[0]
+                        current_time = datetime.now(pytz.timezone("Asia/Kolkata"))
+                        required_views_per_interval, target_message = calculate_required_views_per_interval(
+                            latest_views, target_views, target_time, current_time
+                        )
+                        if target_message:
+                            flash(target_message, "error")
+                        else:
+                            c.execute("INSERT OR REPLACE INTO targets (video_id, target_views, target_time, required_views_per_interval) VALUES (?, ?, ?, ?)",
+                                      (video_id, target_views, target_time, required_views_per_interval))
+                            conn.commit()
+                            for video in videos:
+                                if video["video_id"] == video_id:
+                                    video["target_views"] = target_views
+                                    video["target_time"] = target_time
+                                    video["required_views_per_interval"] = required_views_per_interval
+                                    video["target_message"] = target_message
+                                    break
+                            flash("Target set successfully.", "success")
+                    else:
+                        flash("No view data available for this video.", "error")
+            except ValueError:
+                flash("Target views must be a valid number.", "error")
+                logger.error(f"Invalid target_views value: {target_views}")
 
         conn.close()
 
@@ -368,22 +380,22 @@ def add_video():
         is_targetable = 1 if request.form.get("is_targetable") == "on" else 0
 
         if not video_link:
-            flash("Video link is required.")
+            flash("Video link is required.", "error")
             return redirect(url_for("index"))
 
         video_id = extract_video_id(video_link)
         if not video_id:
-            flash("Invalid YouTube video link.")
+            flash("Invalid YouTube video link.", "error")
             return redirect(url_for("index"))
 
         title = fetch_video_title(video_id)
         if not title:
-            flash("Unable to fetch video title. Check the video link or API key.")
+            flash("Unable to fetch video title. Check the video link or API key.", "error")
             return redirect(url_for("index"))
 
         views = fetch_views([video_id])
         if not views.get(video_id):
-            flash("Unable to fetch video data. Check the video link or API key.")
+            flash("Unable to fetch video data. Check the video link or API key.", "error")
             return redirect(url_for("index"))
 
         conn = sqlite3.connect("views.db", check_same_thread=False)
@@ -399,7 +411,7 @@ def add_video():
         return redirect(url_for("index"))
     except Exception as e:
         logger.error(f"Error adding video: {e}")
-        flash(str(e))
+        flash(str(e), "error")
         return redirect(url_for("index"))
 
 # Route to remove a video
@@ -417,7 +429,7 @@ def remove_video(video_id):
         return redirect(url_for("index"))
     except Exception as e:
         logger.error(f"Error removing video: {e}")
-        flash(str(e))
+        flash(str(e), "error")
         return redirect(url_for("index"))
 
 # Route to export to Excel for a specific video
@@ -429,7 +441,7 @@ def export(video_id):
         c.execute("SELECT name FROM video_list WHERE video_id = ?", (video_id,))
         result = c.fetchone()
         if not result:
-            flash("Video not found.")
+            flash("Video not found.", "error")
             return redirect(url_for("index"))
         name = result[0]
 
@@ -468,11 +480,11 @@ def export(video_id):
         return send_file(excel_file, as_attachment=True, download_name=f"{name}_views.xlsx")
     except sqlite3.Error as e:
         logger.error(f"Database error in export route: {e}", exc_info=True)
-        flash("Database error exporting data.")
+        flash("Database error exporting data.", "error")
         return redirect(url_for("index"))
     except Exception as e:
         logger.error(f"Error in export route: {e}", exc_info=True)
-        flash("Error exporting data.")
+        flash("Error exporting data.", "error")
         return redirect(url_for("index"))
 
 # Initialize database and start background tasks
