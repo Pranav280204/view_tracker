@@ -47,7 +47,8 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS video_list (
             video_id TEXT PRIMARY KEY,
             name TEXT,
-            is_targetable INTEGER
+            is_targetable INTEGER,
+            is_tracking INTEGER DEFAULT 1
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS targets (
             video_id TEXT PRIMARY KEY,
@@ -61,11 +62,11 @@ def init_db():
         c.execute("SELECT COUNT(*) FROM video_list")
         if c.fetchone()[0] == 0:
             default_videos = [
-                ("hTSaweR8qMI", "MrBeast", 1),
-                ("hxMNYkLN7tI", "Aj Ki Raat", 0),
-                ("ekr2nIex040", "Rose", 0)
+                ("hTSaweR8qMI", "MrBeast", 1, 1),
+                ("hxMNYkLN7tI", "Aj Ki Raat", 0, 1),
+                ("ekr2nIex040", "Rose", 0, 1)
             ]
-            c.executemany("INSERT INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)", default_videos)
+            c.executemany("INSERT INTO video_list (video_id, name, is_targetable, is_tracking) VALUES (?, ?, ?, ?)", default_videos)
             db_conn.commit()
             logger.info("Initialized default videos")
     except sqlite3.Error as e:
@@ -180,8 +181,8 @@ def background_tasks():
                     c = db_conn.cursor()
                     c.execute("SELECT video_id FROM video_list WHERE video_id = ?", (video_id,))
                     if not c.fetchone():
-                        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)",
-                                  (video_id, title, 1))
+                        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable, is_tracking) VALUES (?, ?, ?, ?)",
+                                  (video_id, title, 1, 1))
                         db_conn.commit()
                         logger.info(f"Added Sourav Joshi video: {video_id} - {title}")
                         views = fetch_views([video_id])
@@ -201,9 +202,9 @@ def background_tasks():
             logger.debug(f"Current time: {now}, minutes_to_next: {minutes_to_next}, seconds_to_wait: {seconds_to_wait:.2f}")
             time.sleep(seconds_to_wait)
 
-            # Fetch views for all videos
+            # Fetch views for all actively tracked videos
             c = db_conn.cursor()
-            c.execute("SELECT video_id FROM video_list")
+            c.execute("SELECT video_id FROM video_list WHERE is_tracking = 1")
             video_ids = [row[0] for row in c.fetchall()]
             if not video_ids:
                 logger.debug("No videos to fetch views for")
@@ -292,12 +293,12 @@ def index():
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
-        c.execute("SELECT video_id, name, is_targetable FROM video_list ORDER BY video_id = 'hTSaweR8qMI' DESC")
+        c.execute("SELECT video_id, name, is_targetable, is_tracking FROM video_list ORDER BY video_id = 'hTSaweR8qMI' DESC")
         video_list = c.fetchall()
         c.execute("SELECT video_id, target_views, target_time, required_views_per_interval FROM targets")
         targets = {row[0]: {"target_views": row[1], "target_time": row[2], "required_views_per_interval": row[3]} for row in c.fetchall()}
 
-        for video_id, name, is_targetable in video_list:
+        for video_id, name, is_targetable, is_tracking in video_list:
             c.execute("SELECT DISTINCT date FROM views WHERE video_id = ? ORDER BY date DESC", (video_id,))
             dates = [row[0] for row in c.fetchall()]
             daily_data = {}
@@ -312,6 +313,7 @@ def index():
                 "name": name,
                 "daily_data": daily_data,
                 "is_targetable": bool(is_targetable),
+                "is_tracking": bool(is_tracking),
                 "target_views": target_info["target_views"],
                 "target_time": target_info["target_time"],
                 "required_views_per_interval": target_info["required_views_per_interval"],
@@ -416,8 +418,8 @@ def add_video():
             return redirect(url_for("index"))
 
         c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable) VALUES (?, ?, ?)",
-                  (video_id, title, is_targetable))
+        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_targetable, is_tracking) VALUES (?, ?, ?, ?)",
+                  (video_id, title, is_targetable, 1))
         conn.commit()
         conn.close()
 
@@ -427,6 +429,23 @@ def add_video():
         return redirect(url_for("index"))
     except Exception as e:
         logger.error(f"Error adding video: {e}")
+        conn.close() if 'conn' in locals() else None
+        flash(str(e), "error")
+        return redirect(url_for("index"))
+
+# Route to stop tracking a video
+@app.route("/stop_tracking/<video_id>")
+def stop_tracking(video_id):
+    try:
+        conn = sqlite3.connect("views.db", check_same_thread=False)
+        c = conn.cursor()
+        c.execute("UPDATE video_list SET is_tracking = 0 WHERE video_id = ?", (video_id,))
+        conn.commit()
+        conn.close()
+        flash("Stopped tracking video successfully.", "success")
+        return redirect(url_for("index"))
+    except Exception as e:
+        logger.error(f"Error stopping tracking for video {video_id}: {e}")
         conn.close() if 'conn' in locals() else None
         flash(str(e), "error")
         return redirect(url_for("index"))
