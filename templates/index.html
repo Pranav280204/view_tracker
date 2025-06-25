@@ -103,11 +103,14 @@
     <div class="song-section">
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <h3>{{ video.name | escape }}</h3>
+                <h3>{{ video.name | escape }} {% if not video.is_tracking %}(Not Tracking){% endif %}</h3>
                 <img src="https://img.youtube.com/vi/{{ video.video_id }}/0.jpg" class="video-thumbnail img-fluid" alt="Thumbnail">
             </div>
             <div class="video-actions">
                 <a href="/export/{{ video.video_id }}" class="btn btn-outline-success">Export</a>
+                {% if video.is_tracking %}
+                <a href="/stop_tracking/{{ video.video_id }}" class="btn btn-outline-warning" onclick="return confirm('Are you sure you want to stop tracking this video?')">Stop Tracking</a>
+                {% endif %}
                 <a href="/remove_video/{{ video.video_id }}" class="btn btn-outline-danger" onclick="return confirm('Are you sure you want to remove this video?')">Remove</a>
             </div>
         </div>
