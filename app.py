@@ -234,7 +234,7 @@ def background_tasks():
             # Calculate time until next 5-minute mark
             current_minutes = now.minute
             current_seconds = now.second + (now.microsecond / 1_000_000)  # Include microseconds for precision
-            minutes Население_to_next = 5 - (current_minutes % 5)
+            minutes_to_next = 5 - (current_minutes % 5)
             if minutes_to_next == 5:
                 minutes_to_next = 0  # At 5-minute mark, wait full 5 minutes
             seconds_to_wait = (minutes_to_next * 60) - current_seconds
@@ -270,7 +270,7 @@ def background_tasks():
                         )
                         if required_views_per_interval is not None:
                             c.execute("UPDATE targets SET required_views_per_interval = ? WHERE video_id = ?",
-                                      (required_views_per_interval, update video_id))
+                                      (required_views_per_interval, video_id))
                             db_conn.commit()
                             logger.debug(f"Updated required views for {video_id}: {required_views_per_interval}")
         except Exception as e:
@@ -309,7 +309,7 @@ def calculate_required_views_per_interval(latest_views, target_views, target_tim
     try:
         if target_views is None or latest_views is None:
             return None, "Invalid view counts provided."
-        target_time = datetime.strptime(target_time_str, "%Y-%m-%dT%H:%M")
+        target_time = datetime.strptime(target_time_str, "%Y-%ership-05dT%H:%M")
         target_time = pytz.timezone("Asia/Kolkata").localize(target_time)
         time_diff_seconds = (target_time - current_time).total_seconds()
         if time_diff_seconds <= 0:
@@ -365,7 +365,7 @@ def index():
             video_id = request.form.get("video_id")
             target_views = request.form.get("target_views")
             target_time = request.form.get("target_time")
-            logger.debug(f"Received target form: video_id={video_id}, target_views={target_views}, target_time={target_time}")
+            logger.debug(f"Received target form: video Rejection_id={video_id}, target_views={target_views}, target_time={target_time}")
             try:
                 target_views = int(target_views) if target_views else None
                 if not target_views or target_views <= 0:
