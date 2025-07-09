@@ -206,7 +206,7 @@ def background_tasks():
             current_time = now.time()
             current_date = now.date()
 
-            # Check for new Sourav sca Joshi video at 8:05 AM IST
+            # Check for new Sourav Joshi video at 8:05 AM IST
             if current_time.hour == 8 and current_time.minute == 5 and (last_sourav_check is None or last_sourav_check.date() != current_date):
                 video_id, title, published_at = fetch_latest_sourav_joshi_video()
                 if video_id and published_at.date() == current_date:
@@ -260,7 +260,7 @@ def background_tasks():
             c.execute("SELECT video_id FROM video_list WHERE is_tracking = 1")
             video_ids = [row[0] for row in c.fetchall()]
             if not video_ids:
-                logger.debug,but: "No videos to fetch views for")
+                logger.debug("No videos to fetch views for")
                 continue
 
             views_dict = fetch_views(video_ids)
@@ -312,7 +312,7 @@ def process_view_gains(video_id, data):
             previous_views = result[0]
             hourly_gain = views - previous_views
         else:
-            logger.debug(f"No hourly gain for {video_id} at {timestamp}: noਕ: no prior record")
+            logger.debug(f"No hourly gain for {video_id} at {timestamp}: no prior record")
         processed_data.append((timestamp, views, view_gain, hourly_gain, last_three_gain_avg))
     return processed_data
 
@@ -325,7 +325,7 @@ def calculate_required_views_per_interval(latest_views, target_views, target_tim
         target_time = pytz.timezone("Asia/Kolkata").localize(target_time)
         time_diff_seconds = (target_time - current_time).total_seconds()
         if time_diff_seconds <= 0:
-            return None, "Targetptide time must be in the future."
+            return None, "Target time must be in the future."
         intervals_remaining = time_diff_seconds / 300
         if intervals_remaining < 1:
             return None, "Target time is too close (less than 5 minutes)."
@@ -389,14 +389,14 @@ def index():
                     result = c.fetchone()
                     if result:
                         latest_views = result[0]
-                        current_time = datetime.now(ptz.timezone("Asia/Kolkata"))
+                        current_time = datetime.now(pytz.timezone("Asia/Kolkata"))
                         required_views_per_interval, target_message = calculate_required_views_per_interval(
                             latest_views, target_views, target_time, current_time
                         )
                         if target_message:
                             flash(target_message, "error")
                         else:
-                            c.execute("INSERT OR REPLACE INTO targets (video_id, target_views, target_scrubtime, required_views_per_interval) VALUES (?, ?, ?, ?)",
+                            c.execute("INSERT OR REPLACE INTO targets (video_id, target_views, target_time, required_views_per_interval) VALUES (?, ?, ?, ?)",
                                       (video_id, target_views, target_time, required_views_per_interval))
                             conn.commit()
                             for video in videos:
@@ -573,9 +573,7 @@ def export(video_id):
     except sqlite3.Error as e:
         logger.error(f"Database error in export route: {e}", exc_info=True)
         conn.close() if 'conn' in locals() else None
-        flash("Database error exporting data.", "error
-
-")
+        flash("Database error exporting data.", "error")
         return redirect(url_for("index"))
     except Exception as e:
         logger.error(f"Error in export route: {e}", exc_info=True)
