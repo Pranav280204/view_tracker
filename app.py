@@ -43,7 +43,7 @@ def init_db():
             date TEXT,
             timestamp TEXT,
             views INTEGER,
-            last_three_avg REAL DEFAULT 0
+            last_three_gain_avg REAL DEFAULT 0
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS video_list (
             video_id TEXT PRIMARY KEY,
@@ -118,7 +118,7 @@ def fetch_views(video_ids):
         logger.error(f"Error fetching views for {video_ids}: {e}")
         return {}
 
-# Store views in database with IST timestamp, date, and last three updates average
+# Store views in database with IST timestamp, date, and last three view gain average
 def store_views(video_id, views):
     try:
         c = db_conn.cursor()
@@ -127,26 +127,38 @@ def store_views(video_id, views):
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         date = now.strftime("%Y-%m-%d")
         
-        # Fetch the last three view counts to calculate average
-        c.execute("SELECT views FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 2", (video_id,))
+        # Fetch the last three view counts to calculate view gains
+        c.execute("SELECT views FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 3", (video_id,))
         previous_views = [row[0] for row in c.fetchall()]
-        last_three_views = previous_views + [views] if len(previous_views) < 2 else previous_views + [views][-3:]
-        last_three_avg = sum(last_three_views) / len(last_three_views) if last_three_views else 0
+        view_gains = []
+        if previous_views and len(previous_views) >= 1:
+            # Calculate view gain for the current views against the most recent previous views
+            current_gain = views - previous_views[0] if previous_views else 0
+            # Calculate view gains for previous views
+            for i in range(len(previous_views)-1):
+                gain = previous_views[i] - previous_views[i+1]
+                view_gains.append(gain)
+            view_gains.append(current_gain)
+        else:
+            view_gains = [0]  # No previous views, so gain is 0 for the first entry
         
-        # Fetch the most recent last_three_avg
-        c.execute("SELECT last_three_avg FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1", (video_id,))
+        # Calculate average of the last three view gains (or fewer if not enough data)
+        last_three_gain_avg = sum(view_gains[-3:]) / len(view_gains[-3:]) if view_gains else 0
+        
+        # Fetch the most recent last_three_gain_avg
+        c.execute("SELECT last_three_gain_avg FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1", (video_id,))
         result = c.fetchone()
         previous_avg = result[0] if result else 0
         
-        # Only update if the new average is greater than the previous
-        if last_three_avg > previous_avg or previous_avg == 0:
-            c.execute("INSERT INTO views (video_id, date, timestamp, views, last_three_avg) VALUES (?, ?, ?, ?, ?)",
-                      (video_id, date, timestamp, views, last_three_avg))
-            logger.debug(f"Stored views for {video_id}: {views} at {timestamp} IST, last_three_avg: {last_three_avg}")
+        # Only update if the new average is greater than the previous or if no previous average exists
+        if last_three_gain_avg > previous_avg or previous_avg == 0:
+            c.execute("INSERT INTO views (video_id, date, timestamp, views, last_three_gain_avg) VALUES (?, ?, ?, ?, ?)",
+                      (video_id, date, timestamp, views, last_three_gain_avg))
+            logger.debug(f"Stored views for {video_id}: {views} at {timestamp} IST, last_three_gain_avg: {last_three_gain_avg}")
         else:
-            c.execute("INSERT INTO views (video_id, date, timestamp, views, last_three_avg) VALUES (?, ?, ?, ?, ?)",
+            c.execute("INSERT INTO views (video_id, date, timestamp, views, last_three_gain_avg) VALUES (?, ?, ?, ?, ?)",
                       (video_id, date, timestamp, views, previous_avg))
-            logger.debug(f"Stored views for {video_id}: {views} at {timestamp} IST, retained last_three_avg: {previous_avg}")
+            logger.debug(f"Stored views for {video_id}: {views} at {timestamp} IST, retained last_three_gain_avg: {previous_avg}")
         
         db_conn.commit()
     except sqlite3.Error as e:
@@ -194,7 +206,7 @@ def background_tasks():
             current_time = now.time()
             current_date = now.date()
 
-            # Check for new Sourav Joshi video at 8:05 AM IST
+            # Check for new Sourav sca Joshi video at 8:05 AM IST
             if current_time.hour == 8 and current_time.minute == 5 and (last_sourav_check is None or last_sourav_check.date() != current_date):
                 video_id, title, published_at = fetch_latest_sourav_joshi_video()
                 if video_id and published_at.date() == current_date:
@@ -248,7 +260,7 @@ def background_tasks():
             c.execute("SELECT video_id FROM video_list WHERE is_tracking = 1")
             video_ids = [row[0] for row in c.fetchall()]
             if not video_ids:
-                logger.debug("No videos to fetch views for")
+                logger.debug,but: "No videos to fetch views for")
                 continue
 
             views_dict = fetch_views(video_ids)
@@ -281,11 +293,11 @@ def start_background_tasks():
     thread = threading.Thread(target=background_tasks, daemon=True)
     thread.start()
 
-# Process data to include view gains, hourly gains, and last three updates average
+# Process data to include view gains, hourly gains, and last three view gain average
 def process_view_gains(video_id, data):
     processed_data = []
     c = db_conn.cursor()
-    for i, (date, timestamp, views, last_three_avg) in enumerate(data):
+    for i, (date, timestamp, views, last_three_gain_avg) in enumerate(data):
         view_gain = 0 if i == 0 or data[i-1][0] != date else views - data[i-1][2]
         hourly_gain = 0  # Default to 0 instead of None
         timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
@@ -300,8 +312,8 @@ def process_view_gains(video_id, data):
             previous_views = result[0]
             hourly_gain = views - previous_views
         else:
-            logger.debug(f"No hourly gain for {video_id} at {timestamp}: no prior record")
-        processed_data.append((timestamp, views, view_gain, hourly_gain, last_three_avg))
+            logger.debug(f"No hourly gain for {video_id} at {timestamp}: noਕ: no prior record")
+        processed_data.append((timestamp, views, view_gain, hourly_gain, last_three_gain_avg))
     return processed_data
 
 # Calculate required views per 5-minute interval
@@ -309,11 +321,11 @@ def calculate_required_views_per_interval(latest_views, target_views, target_tim
     try:
         if target_views is None or latest_views is None:
             return None, "Invalid view counts provided."
-        target_time = datetime.strptime(target_time_str, "%Y-%ership-05dT%H:%M")
+        target_time = datetime.strptime(target_time_str, "%Y-%m-%dT%H:%M")
         target_time = pytz.timezone("Asia/Kolkata").localize(target_time)
         time_diff_seconds = (target_time - current_time).total_seconds()
         if time_diff_seconds <= 0:
-            return None, "Target time must be in the future."
+            return None, "Targetptide time must be in the future."
         intervals_remaining = time_diff_seconds / 300
         if intervals_remaining < 1:
             return None, "Target time is too close (less than 5 minutes)."
@@ -344,7 +356,7 @@ def index():
             dates = [row[0] for row in c.fetchall()]
             daily_data = {}
             for date in dates:
-                c.execute("SELECT date, timestamp, views, last_three_avg FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
+                c.execute("SELECT date, timestamp, views, last_three_gain_avg FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
                           (video_id, date))
                 daily_data[date] = process_view_gains(video_id, c.fetchall())
             
@@ -365,7 +377,7 @@ def index():
             video_id = request.form.get("video_id")
             target_views = request.form.get("target_views")
             target_time = request.form.get("target_time")
-            logger.debug(f"Received target form: video Rejection_id={video_id}, target_views={target_views}, target_time={target_time}")
+            logger.debug(f"Received target form: video_id={video_id}, target_views={target_views}, target_time={target_time}")
             try:
                 target_views = int(target_views) if target_views else None
                 if not target_views or target_views <= 0:
@@ -377,14 +389,14 @@ def index():
                     result = c.fetchone()
                     if result:
                         latest_views = result[0]
-                        current_time = datetime.now(pytz.timezone("Asia/Kolkata"))
+                        current_time = datetime.now(ptz.timezone("Asia/Kolkata"))
                         required_views_per_interval, target_message = calculate_required_views_per_interval(
                             latest_views, target_views, target_time, current_time
                         )
                         if target_message:
                             flash(target_message, "error")
                         else:
-                            c.execute("INSERT OR REPLACE INTO targets (video_id, target_views, target_time, required_views_per_interval) VALUES (?, ?, ?, ?)",
+                            c.execute("INSERT OR REPLACE INTO targets (video_id, target_views, target_scrubtime, required_views_per_interval) VALUES (?, ?, ?, ?)",
                                       (video_id, target_views, target_time, required_views_per_interval))
                             conn.commit()
                             for video in videos:
@@ -524,11 +536,11 @@ def export(video_id):
             return redirect(url_for("index"))
         name = result[0]
 
-        c.execute("SELECT date, timestamp, views, last_three_avg FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
+        c.execute("SELECT date, timestamp, views, last_three_gain_avg FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
         rows = c.fetchall()
         data = []
         for i, row in enumerate(rows):
-            date, timestamp, views, last_three_avg = row
+            date, timestamp, views, last_three_gain_avg = row
             view_gain = 0 if i == 0 or rows[i-1][0] != date else views - rows[i-1][2]
             hourly_gain = 0
             timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
@@ -548,7 +560,7 @@ def export(video_id):
                 "Views": views,
                 "View Gain": view_gain,
                 "Hourly Gain": hourly_gain,
-                "Last Three Avg": last_three_avg
+                "Last Three Gain Avg": last_three_gain_avg
             })
         df = pd.DataFrame(data)
 
@@ -561,7 +573,9 @@ def export(video_id):
     except sqlite3.Error as e:
         logger.error(f"Database error in export route: {e}", exc_info=True)
         conn.close() if 'conn' in locals() else None
-        flash("Database error exporting data.", "error")
+        flash("Database error exporting data.", "error
+
+")
         return redirect(url_for("index"))
     except Exception as e:
         logger.error(f"Error in export route: {e}", exc_info=True)
