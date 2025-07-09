@@ -135,17 +135,17 @@
                                     <th>Views</th>
                                     <th>View Gain</th>
                                     <th>Hourly Gain</th>
-                                    <th>Last 3 Updates Avg</th>
+                                    <th>Last 3 Gain Avg</th>
                                 </tr>
                                 </thead>
                                 <tbody>
-                                {% for timestamp, views, view_gain, hourly_gain, last_three_avg in data[::-1] %}
+                                {% for timestamp, views, view_gain, hourly_gain, last_three_gain_avg in data[::-1] %}
                                     <tr>
                                         <td>{{ timestamp }}</td>
                                         <td>{{ views | int }}</td>
                                         <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray' }};">{{ view_gain | int }}</td>
                                         <td style="color: {{ 'green' if hourly_gain > 0 else 'red' if hourly_gain < 0 else 'gray' }};">{{ hourly_gain | int }}</td>
-                                        <td>{{ last_three_avg | round(2) }}</td>
+                                        <td>{{ last_three_gain_avg | round(2) }}</td>
                                     </tr>
                                 {% endfor %}
                                 </tbody>
@@ -181,8 +181,8 @@
                                         fill: true,
                                         tension: 0.4
                                     }, {
-                                        label: 'Last 3 Updates Avg',
-                                        data: [{% for _, _, _, _, last_three_avg in data[::-1] %}{{ last_three_avg | round(2) }},{% endfor %}],
+                                        label: 'Last 3 Gain Avg',
+                                        data: [{% for _, _, _, _, last_three_gain_avg in data[::-1] %}{{ last_three_gain_avg | round(2) }},{% endfor %}],
                                         borderColor: '#6f42c1',
                                         backgroundColor: 'rgba(111, 66, 193, 0.2)',
                                         fill: true,
