@@ -135,15 +135,17 @@
                                     <th>Views</th>
                                     <th>View Gain</th>
                                     <th>Hourly Gain</th>
+                                    <th>Last 3 Updates Avg</th>
                                 </tr>
                                 </thead>
                                 <tbody>
-                                {% for timestamp, views, view_gain, hourly_gain in data[::-1] %}
+                                {% for timestamp, views, view_gain, hourly_gain, last_three_avg in data[::-1] %}
                                     <tr>
                                         <td>{{ timestamp }}</td>
                                         <td>{{ views | int }}</td>
                                         <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray' }};">{{ view_gain | int }}</td>
                                         <td style="color: {{ 'green' if hourly_gain > 0 else 'red' if hourly_gain < 0 else 'gray' }};">{{ hourly_gain | int }}</td>
+                                        <td>{{ last_three_avg | round(2) }}</td>
                                     </tr>
                                 {% endfor %}
                                 </tbody>
@@ -156,26 +158,33 @@
                             new Chart(document.getElementById('viewsChart_{{ video.video_id }}_{{ date }}'), {
                                 type: 'line',
                                 data: {
-                                    labels: [{% for timestamp, _, _, _ in data[::-1] %}"{{ timestamp | safe }}",{% endfor %}],
+                                    labels: [{% for timestamp, _, _, _, _ in data[::-1] %}"{{ timestamp | safe }}",{% endfor %}],
                                     datasets: [{
                                         label: 'Views',
-                                        data: [{% for _, views, _, _ in data[::-1] %}{{ views | int }},{% endfor %}],
+                                        data: [{% for _, views, _, _, _ in data[::-1] %}{{ views | int }},{% endfor %}],
                                         borderColor: '#0d6efd',
                                         backgroundColor: 'rgba(13, 110, 253, 0.2)',
                                         fill: true,
                                         tension: 0.4
                                     }, {
                                         label: 'View Gain',
-                                        data: [{% for _, _, view_gain, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
+                                        data: [{% for _, _, view_gain, _, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
                                         borderColor: '#28a745',
                                         backgroundColor: 'rgba(40, 167, 69, 0.2)',
                                         fill: true,
                                         tension: 0.4
                                     }, {
                                         label: 'Hourly Gain',
-                                        data: [{% for _, _, _, hourly_gain in data[::-1] %}{{ hourly_gain | int }},{% endfor %}],
+                                        data: [{% for _, _, _, hourly_gain, _ in data[::-1] %}{{ hourly_gain | int }},{% endfor %}],
                                         borderColor: '#ff851b',
                                         backgroundColor: 'rgba(255, 133, 27, 0.2)',
+                                        fill: true,
+                                        tension: 0.4
+                                    }, {
+                                        label: 'Last 3 Updates Avg',
+                                        data: [{% for _, _, _, _, last_three_avg in data[::-1] %}{{ last_three_avg | round(2) }},{% endfor %}],
+                                        borderColor: '#6f42c1',
+                                        backgroundColor: 'rgba(111, 66, 193, 0.2)',
                                         fill: true,
                                         tension: 0.4
                                     }]
