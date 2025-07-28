@@ -44,10 +44,7 @@ def init_db():
             timestamp TEXT,
             views INTEGER,
             likes INTEGER,
-            comments INTEGER,
-            last_three_view_gain_avg REAL DEFAULT 0,
-            last_three_like_gain_avg REAL DEFAULT 0,
-            last_three_comment_gain_avg REAL DEFAULT 0
+            comments INTEGER
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS video_list (
             video_id TEXT PRIMARY KEY,
@@ -119,7 +116,7 @@ def fetch_views(video_ids):
         logger.error(f"Error fetching stats for {video_ids}: {e}")
         return {}
 
-# Store views, likes, and comments in database with IST timestamp, date, and last three gain averages
+# Store views, likes, and comments in database with IST timestamp and date
 def store_views(video_id, stats):
     try:
         c = db_conn.cursor()
@@ -132,51 +129,9 @@ def store_views(video_id, stats):
         likes = stats.get("likes", 0)
         comments = stats.get("comments", 0)
         
-        # Fetch the last three records to calculate gains
-        c.execute("SELECT views, likes, comments FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 3", (video_id,))
-        previous_records = c.fetchall()
-        view_gains = []
-        like_gains = []
-        comment_gains = []
-        
-        if previous_records and len(previous_records) >= 1:
-            # Calculate gains for the current stats against the most recent previous stats
-            current_view_gain = views - previous_records[0][0] if previous_records else 0
-            current_like_gain = likes - previous_records[0][1] if previous_records else 0
-            current_comment_gain = comments - previous_records[0][2] if previous_records else 0
-            # Calculate gains for previous records
-            for i in range(len(previous_records)-1):
-                view_gains.append(previous_records[i][0] - previous_records[i+1][0])
-                like_gains.append(previous_records[i][1] - previous_records[i+1][1])
-                comment_gains.append(previous_records[i][2] - previous_records[i+1][2])
-            view_gains.append(current_view_gain)
-            like_gains.append(current_like_gain)
-            comment_gains.append(current_comment_gain)
-        else:
-            view_gains = [0]
-            like_gains = [0]
-            comment_gains = [0]
-        
-        # Calculate average of the last three gains
-        last_three_view_gain_avg = sum(view_gains[-3:]) / len(view_gains[-3:]) if view_gains else 0
-        last_three_like_gain_avg = sum(like_gains[-3:]) / len(like_gains[-3:]) if like_gains else 0
-        last_three_comment_gain_avg = sum(comment_gains[-3:]) / len(comment_gains[-3:]) if comment_gains else 0
-        
-        # Fetch the most recent averages
-        c.execute("SELECT last_three_view_gain_avg, last_three_like_gain_avg, last_three_comment_gain_avg FROM views WHERE video_id = ? ORDER BY timestamp DESC LIMIT 1", (video_id,))
-        result = c.fetchone()
-        previous_view_avg = result[0] if result else 0
-        previous_like_avg = result[1] if result else 0
-        previous_comment_avg = result[2] if result else 0
-        
-        # Update only if the new average is greater or no previous average exists
-        view_avg_to_store = last_three_view_gain_avg if last_three_view_gain_avg > previous_view_avg or previous_view_avg == 0 else previous_view_avg
-        like_avg_to_store = last_three_like_gain_avg if last_three_like_gain_avg > previous_like_avg or previous_like_avg == 0 else previous_like_avg
-        comment_avg_to_store = last_three_comment_gain_avg if last_three_comment_gain_avg > previous_comment_avg or previous_comment_avg == 0 else previous_comment_avg
-        
-        c.execute("INSERT INTO views (video_id, date, timestamp, views, likes, comments, last_three_view_gain_avg, last_three_like_gain_avg, last_three_comment_gain_avg) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                  (video_id, date, timestamp, views, likes, comments, view_avg_to_store, like_avg_to_store, comment_avg_to_store))
-        logger.debug(f"Stored stats for {video_id}: views={views}, likes={likes}, comments={comments} at {timestamp} IST, averages: view={view_avg_to_store}, like={like_avg_to_store}, comment={comment_avg_to_store}")
+        c.execute("INSERT INTO views (video_id, date, timestamp, views, likes, comments) VALUES (?, ?, ?, ?, ?, ?)",
+                  (video_id, date, timestamp, views, likes, comments))
+        logger.debug(f"Stored stats for {video_id}: views={views}, likes={likes}, comments={comments} at {timestamp} IST")
         
         db_conn.commit()
     except sqlite3.Error as e:
@@ -293,39 +248,34 @@ def start_background_tasks():
     thread = threading.Thread(target=background_tasks, daemon=True)
     thread.start()
 
-# Process data to include gains and last three gain averages for views, likes, and comments
+# Process data to include gains for views, likes, and comments
 def process_view_gains(video_id, data):
     processed_data = []
     c = db_conn.cursor()
-    for i, (date, timestamp, views, likes, comments, last_three_view_gain_avg, last_three_like_gain_avg, last_three_comment_gain_avg) in enumerate(data):
+    for i, (date, timestamp, views, likes, comments) in enumerate(data):
         view_gain = 0 if i == 0 or data[i-1][0] != date else views - data[i-1][2]
         like_gain = 0 if i == 0 or data[i-1][0] != date else likes - data[i-1][3]
         comment_gain = 0 if i == 0 or data[i-1][0] != date else comments - data[i-1][4]
         
         view_hourly_gain = 0
-        like_hourly_gain = 0
-        comment_hourly_gain = 0
         timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("""
-            SELECT views, likes, comments FROM views 
+            SELECT views FROM views 
             WHERE video_id = ? AND date = ? AND timestamp <= ? 
             ORDER BY timestamp DESC LIMIT 1
         """, (video_id, date, one_hour_ago))
         result = c.fetchone()
         if result:
-            previous_views, previous_likes, previous_comments = result
+            previous_views = result[0]
             view_hourly_gain = views - previous_views
-            like_hourly_gain = likes - previous_likes
-            comment_hourly_gain = comments - previous_comments
         else:
-            logger.debug(f"No hourly gains for {video_id} at {timestamp}: no prior record")
+            logger.debug(f"No hourly view gain for {video_id} at {timestamp}: no prior record")
         
         processed_data.append((
             timestamp, views, likes, comments,
             view_gain, like_gain, comment_gain,
-            view_hourly_gain, like_hourly_gain, comment_hourly_gain,
-            last_three_view_gain_avg, last_three_like_gain_avg, last_three_comment_gain_avg
+            view_hourly_gain
         ))
     return processed_data
 
@@ -346,7 +296,7 @@ def index():
             dates = [row[0] for row in c.fetchall()]
             daily_data = {}
             for date in dates:
-                c.execute("SELECT date, timestamp, views, likes, comments, last_three_view_gain_avg, last_three_like_gain_avg, last_three_comment_gain_avg FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
+                c.execute("SELECT date, timestamp, views, likes, comments FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
                           (video_id, date))
                 daily_data[date] = process_view_gains(video_id, c.fetchall())
             
@@ -478,31 +428,27 @@ def export(video_id):
             return redirect(url_for("index"))
         name = result[0]
 
-        c.execute("SELECT date, timestamp, views, likes, comments, last_three_view_gain_avg, last_three_like_gain_avg, last_three_comment_gain_avg FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
+        c.execute("SELECT date, timestamp, views, likes, comments FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
         rows = c.fetchall()
         data = []
         for i, row in enumerate(rows):
-            date, timestamp, views, likes, comments, last_three_view_gain_avg, last_three_like_gain_avg, last_three_comment_gain_avg = row
+            date, timestamp, views, likes, comments = row
             view_gain = 0 if i == 0 or rows[i-1][0] != date else views - rows[i-1][2]
             like_gain = 0 if i == 0 or rows[i-1][0] != date else likes - rows[i-1][3]
             comment_gain = 0 if i == 0 or rows[i-1][0] != date else comments - rows[i-1][4]
             
             view_hourly_gain = 0
-            like_hourly_gain = 0
-            comment_hourly_gain = 0
             timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
             one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
-                SELECT views, likes, comments FROM views 
+                SELECT views FROM views 
                 WHERE video_id = ? AND date = ? AND timestamp <= ? 
                 ORDER BY timestamp DESC LIMIT 1
             """, (video_id, date, one_hour_ago))
             result = c.fetchone()
             if result:
-                previous_views, previous_likes, previous_comments = result
+                previous_views = result[0]
                 view_hourly_gain = views - previous_views
-                like_hourly_gain = likes - previous_likes
-                comment_hourly_gain = comments - previous_comments
             
             data.append({
                 "Date": date,
@@ -513,12 +459,7 @@ def export(video_id):
                 "View Gain": view_gain,
                 "Like Gain": like_gain,
                 "Comment Gain": comment_gain,
-                "View Hourly Gain": view_hourly_gain,
-                "Like Hourly Gain": like_hourly_gain,
-                "Comment Hourly Gain": comment_hourly_gain,
-                "Last Three View Gain Avg": last_three_view_gain_avg,
-                "Last Three Like Gain Avg": last_three_like_gain_avg,
-                "Last Three Comment Gain Avg": last_three_comment_gain_avg
+                "View Hourly Gain": view_hourly_gain
             })
         df = pd.DataFrame(data)
 
