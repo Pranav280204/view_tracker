@@ -149,9 +149,8 @@
                                         <td>{{ views | int }}</td>
                                         <td>{{ likes | int }}</td>
                                         <td>{{ comments | int }}</td>
-                                        <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray'
-                                                                                <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray' }};">{{ view_gain | int }}</td>
-                                        <td style="color: {{ 'green' if hourly_gain > 0 else 'red' if hourly_gain < 0 else 'gray' }};">{{ hourly_gain | int }}</td>
+                                        <td style="color: {% if view_gain > 0 %}green{% elif view_gain < 0 %}red{% else %}gray{% endif %};">{{ view_gain | int }}</td>
+                                        <td style="color: {% if hourly_gain > 0 %}green{% elif hourly_gain < 0 %}red{% else %}gray{% endif %};">{{ hourly_gain | int }}</td>
                                         <td>{{ last_three_gain_avg | round(2) }}</td>
                                     </tr>
                                 {% endfor %}
@@ -276,4 +275,3 @@
 </script>
 </body>
 </html>
-
