@@ -104,6 +104,8 @@
         <div class="d-flex justify-content-between align-items-center">
             <div>
                 <h3>{{ video.name | escape }} {% if not video.is_tracking %}(Not Tracking){% endif %}</h3>
+                <p>Likes: {{ video.likes }}</p>
+                <p>Comments: {{ video.comments }}</p>
                 <img src="https://img.youtube.com/vi/{{ video.video_id }}/0.jpg" class="video-thumbnail img-fluid" alt="Thumbnail">
             </div>
             <div class="video-actions">
@@ -133,146 +135,18 @@
                                 <tr>
                                     <th>Timestamp (IST)</th>
                                     <th>Views</th>
+                                    <th>Likes</th>
+                                    <th>Comments</th>
                                     <th>View Gain</th>
                                     <th>Hourly Gain</th>
                                     <th>Last 3 Gain Avg</th>
                                 </tr>
                                 </thead>
                                 <tbody>
-                                {% for timestamp, views, view_gain, hourly_gain, last_three_gain_avg in data[::-1] %}
+                                {% for timestamp, views, likes, comments, view_gain, hourly_gain, last_three_gain_avg in data[::-1] %}
                                     <tr>
                                         <td>{{ timestamp }}</td>
                                         <td>{{ views | int }}</td>
-                                        <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray' }};">{{ view_gain | int }}</td>
-                                        <td style="color: {{ 'green' if hourly_gain > 0 else 'red' if hourly_gain < 0 else 'gray' }};">{{ hourly_gain | int }}</td>
-                                        <td>{{ last_three_gain_avg | round(2) }}</td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                        <!-- Chart -->
-                        {% if data %}
-                        <canvas id="viewsChart_{{ video.video_id }}_{{ date }}" class="mt-3" height="100"></canvas>
-                        <script>
-                            new Chart(document.getElementById('viewsChart_{{ video.video_id }}_{{ date }}'), {
-                                type: 'line',
-                                data: {
-                                    labels: [{% for timestamp, _, _, _, _ in data[::-1] %}"{{ timestamp | safe }}",{% endfor %}],
-                                    datasets: [{
-                                        label: 'Views',
-                                        data: [{% for _, views, _, _, _ in data[::-1] %}{{ views | int }},{% endfor %}],
-                                        borderColor: '#0d6efd',
-                                        backgroundColor: 'rgba(13, 110, 253, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'View Gain',
-                                        data: [{% for _, _, view_gain, _, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
-                                        borderColor: '#28a745',
-                                        backgroundColor: 'rgba(40, 167, 69, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'Hourly Gain',
-                                        data: [{% for _, _, _, hourly_gain, _ in data[::-1] %}{{ hourly_gain | int }},{% endfor %}],
-                                        borderColor: '#ff851b',
-                                        backgroundColor: 'rgba(255, 133, 27, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'Last 3 Gain Avg',
-                                        data: [{% for _, _, _, _, last_three_gain_avg in data[::-1] %}{{ last_three_gain_avg | round(2) }},{% endfor %}],
-                                        borderColor: '#6f42c1',
-                                        backgroundColor: 'rgba(111, 66, 193, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    plugins: {
-                                        legend: { position: 'top' },
-                                        title: { display: true, text: '{{ video.name | safe }} - {{ date }} View Trends' },
-                                        tooltip: {
-                                            callbacks: {
-                                                label: function(context) {
-                                                    let label = context.dataset.label || '';
-                                                    if (label) {
-                                                        label += ': ';
-                                                    }
-                                                    label += context.parsed.y.toLocaleString();
-                                                    return label;
-                                                }
-                                            }
-                                        }
-                                    },
-                                    scales: {
-                                        x: { title: { display: true, text: 'Timestamp (IST)' } },
-                                        y: { title: { display: true, text: 'Count' }, beginAtZero: false }
-                                    }
-                                }
-                            });
-                        </script>
-                        {% else %}
-                        <p>No data available for {{ date }}.</p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-
-        <!-- Target Setting -->
-        {% if video.is_targetable %}
-        <div class="target-form mt-4">
-            <h5>Set Target Views and Time</h5>
-            <form method="POST" action="/" onsubmit="return validateTargetForm('{{ video.video_id }}')">
-                <input type="hidden" name="video_id" value="{{ video.video_id }}">
-                <div class="mb-3">
-                    <label for="target_views_{{ video.video_id }}" class="form-label">Target Views:</label>
-                    <input type="number" class="form-control" id="target_views_{{ video.video_id }}" name="target_views" min="1" required>
-                </div>
-                <div class="mb-3">
-                    <label for="target_time_{{ video.video_id }}" class="form-label">Target Time:</label>
-                    <input type="datetime-local" class="form-control" id="target_time_{{ video.video_id }}" name="target_time" required>
-                </div>
-                <button type="submit" class="btn btn-success">Calculate</button>
-            </form>
-
-            {% if video.target_message %}
-                <p class="target-message mt-3">{{ video.target_message | escape }}</p>
-            {% elif video.required_views_per_interval is not none %}
-                <p class="target-result mt-3">Required views per 5-minute interval: {{ video.required_views_per_interval | round(2) }}</p>
-                <p class="target-info">Target Views: {{ video.target_views }}</p>
-                <p class="target-info">Target Time: {{ video.target_time }}</p>
-            {% endif %}
-        </div>
-        {% endif %}
-    </div>
-    {% endfor %}
-</div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-    function validateTargetForm(videoId) {
-        const targetViews = document.getElementById(`target_views_${videoId}`).value;
-        if (!targetViews || isNaN(targetViews) || parseInt(targetViews) <= 0) {
-            alert("Target views must be a positive number.");
-            return false;
-        }
-        const targetTime = document.getElementById(`target_time_${videoId}`).value;
-        if (!targetTime) {
-            alert("Target time is required.");
-            return false;
-        }
-        const now = new Date();
-        const targetDate = new Date(targetTime);
-        if (targetDate <= now) {
-            alert("Target time must be in the future.");
-            return false;
-        }
-        return true;
-    }
-</script>
-</body>
-</html>
+                                        <td>{{ likes | int }}</td>
+                                        <td>{{ comments | int }}</td>
+                                        <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray'
