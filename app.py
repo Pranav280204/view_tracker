@@ -43,8 +43,7 @@ def init_db():
             date TEXT,
             timestamp TEXT,
             views INTEGER,
-            likes INTEGER,
-            comments INTEGER
+            likes INTEGER
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS video_list (
             video_id TEXT PRIMARY KEY,
@@ -96,7 +95,7 @@ def fetch_video_title(video_id):
         logger.error(f"Error fetching title for {video_id}: {e}")
         return None
 
-# Fetch views, likes, and comments for multiple video IDs
+# Fetch views and likes for multiple video IDs
 def fetch_views(video_ids):
     if not youtube:
         logger.error("YouTube API client not initialized")
@@ -108,15 +107,14 @@ def fetch_views(video_ids):
             video_id = item["id"]
             stats[video_id] = {
                 "views": int(item["statistics"].get("viewCount", 0)),
-                "likes": int(item["statistics"].get("likeCount", 0)),
-                "comments": int(item["statistics"].get("commentCount", 0))
+                "likes": int(item["statistics"].get("likeCount", 0))
             }
         return stats
     except HttpError as e:
         logger.error(f"Error fetching stats for {video_ids}: {e}")
         return {}
 
-# Store views, likes, and comments in database with IST timestamp and date
+# Store views and likes in database with IST timestamp and date
 def store_views(video_id, stats):
     try:
         c = db_conn.cursor()
@@ -127,11 +125,10 @@ def store_views(video_id, stats):
         
         views = stats.get("views", 0)
         likes = stats.get("likes", 0)
-        comments = stats.get("comments", 0)
         
-        c.execute("INSERT INTO views (video_id, date, timestamp, views, likes, comments) VALUES (?, ?, ?, ?, ?, ?)",
-                  (video_id, date, timestamp, views, likes, comments))
-        logger.debug(f"Stored stats for {video_id}: views={views}, likes={likes}, comments={comments} at {timestamp} IST")
+        c.execute("INSERT INTO views (video_id, date, timestamp, views, likes) VALUES (?, ?, ?, ?, ?)",
+                  (video_id, date, timestamp, views, likes))
+        logger.debug(f"Stored stats for {video_id}: views={views}, likes={likes} at {timestamp} IST")
         
         db_conn.commit()
     except sqlite3.Error as e:
@@ -248,14 +245,14 @@ def start_background_tasks():
     thread = threading.Thread(target=background_tasks, daemon=True)
     thread.start()
 
-# Process data to include gains for views, likes, and comments
+# Process data to include gains for views, likes, and views/likes ratio
 def process_view_gains(video_id, data):
     processed_data = []
     c = db_conn.cursor()
-    for i, (date, timestamp, views, likes, comments) in enumerate(data):
+    for i, (date, timestamp, views, likes) in enumerate(data):
         view_gain = 0 if i == 0 or data[i-1][0] != date else views - data[i-1][2]
         like_gain = 0 if i == 0 or data[i-1][0] != date else likes - data[i-1][3]
-        comment_gain = 0 if i == 0 or data[i-1][0] != date else comments - data[i-1][4]
+        view_like_ratio = round(views / likes, 2) if likes > 0 else 0
         
         view_hourly_gain = 0
         timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
@@ -273,9 +270,7 @@ def process_view_gains(video_id, data):
             logger.debug(f"No hourly view gain for {video_id} at {timestamp}: no prior record")
         
         processed_data.append((
-            timestamp, views, likes, comments,
-            view_gain, like_gain, comment_gain,
-            view_hourly_gain
+            timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio
         ))
     return processed_data
 
@@ -296,7 +291,7 @@ def index():
             dates = [row[0] for row in c.fetchall()]
             daily_data = {}
             for date in dates:
-                c.execute("SELECT date, timestamp, views, likes, comments FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
+                c.execute("SELECT date, timestamp, views, likes FROM views WHERE video_id = ? AND date = ? ORDER BY timestamp ASC",
                           (video_id, date))
                 daily_data[date] = process_view_gains(video_id, c.fetchall())
             
@@ -428,14 +423,14 @@ def export(video_id):
             return redirect(url_for("index"))
         name = result[0]
 
-        c.execute("SELECT date, timestamp, views, likes, comments FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
+        c.execute("SELECT date, timestamp, views, likes FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
         rows = c.fetchall()
         data = []
         for i, row in enumerate(rows):
-            date, timestamp, views, likes, comments = row
+            date, timestamp, views, likes = row
             view_gain = 0 if i == 0 or rows[i-1][0] != date else views - rows[i-1][2]
             like_gain = 0 if i == 0 or rows[i-1][0] != date else likes - rows[i-1][3]
-            comment_gain = 0 if i == 0 or rows[i-1][0] != date else comments - rows[i-1][4]
+            view_like_ratio = round(views / likes, 2) if likes > 0 else 0
             
             view_hourly_gain = 0
             timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
@@ -455,11 +450,10 @@ def export(video_id):
                 "Timestamp": timestamp,
                 "Views": views,
                 "Likes": likes,
-                "Comments": comments,
                 "View Gain": view_gain,
                 "Like Gain": like_gain,
-                "Comment Gain": comment_gain,
-                "View Hourly Gain": view_hourly_gain
+                "View Hourly Gain": view_hourly_gain,
+                "Views/Likes Ratio": view_like_ratio
             })
         df = pd.DataFrame(data)
 
