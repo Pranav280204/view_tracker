@@ -255,6 +255,7 @@ def process_view_gains(video_id, data):
         view_like_ratio = round(views / likes, 2) if likes > 0 else 0
         
         view_hourly_gain = 0
+        like_hourly_gain = 0
         timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("""
@@ -269,8 +270,20 @@ def process_view_gains(video_id, data):
         else:
             logger.debug(f"No hourly view gain for {video_id} at {timestamp}: no prior record")
         
+        c.execute("""
+            SELECT likes FROM views 
+            WHERE video_id = ? AND date = ? AND timestamp <= ? 
+            ORDER BY timestamp DESC LIMIT 1
+        """, (video_id, date, one_hour_ago))
+        result = c.fetchone()
+        if result:
+            previous_likes = result[0]
+            like_hourly_gain = likes - previous_likes
+        else:
+            logger.debug(f"No hourly like gain for {video_id} at {timestamp}: no prior record")
+        
         processed_data.append((
-            timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio
+            timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio, like_hourly_gain
         ))
     return processed_data
 
@@ -433,6 +446,7 @@ def export(video_id):
             view_like_ratio = round(views / likes, 2) if likes > 0 else 0
             
             view_hourly_gain = 0
+            like_hourly_gain = 0
             timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
             one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
@@ -445,6 +459,16 @@ def export(video_id):
                 previous_views = result[0]
                 view_hourly_gain = views - previous_views
             
+            c.execute("""
+                SELECT likes FROM views 
+                WHERE video_id = ? AND date = ? AND timestamp <= ? 
+                ORDER BY timestamp DESC LIMIT 1
+            """, (video_id, date, one_hour_ago))
+            result = c.fetchone()
+            if result:
+                previous_likes = result[0]
+                like_hourly_gain = likes - previous_likes
+            
             data.append({
                 "Date": date,
                 "Timestamp": timestamp,
@@ -453,6 +477,7 @@ def export(video_id):
                 "View Gain": view_gain,
                 "Like Gain": like_gain,
                 "View Hourly Gain": view_hourly_gain,
+                "Like Hourly Gain": like_hourly_gain,
                 "Views/Likes Ratio": view_like_ratio
             })
         df = pd.DataFrame(data)
@@ -472,11 +497,4 @@ def export(video_id):
         logger.error(f"Error in export route: {e}", exc_info=True)
         conn.close() if 'conn' in locals() else None
         flash("Error exporting data.", "error")
-        return redirect(url_for("index"))
-
-# Initialize database and start background tasks
-init_db()
-start_background_tasks()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+        return redirect(url_for("
