@@ -48,21 +48,11 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS video_list (
             video_id TEXT PRIMARY KEY,
             name TEXT,
-            is_tracking INTEGER DEFAULT 1
+            is_tracking INTEGER DEFAULT 1,
+            comparison_video_id TEXT
         )""")
         db_conn.commit()
         logger.info("Successfully initialized database")
-
-        c.execute("SELECT COUNT(*) FROM video_list")
-        if c.fetchone()[0] == 0:
-            default_videos = [
-                ("hTSaweR8qMI", "MrBeast", 1),
-                ("hxMNYkLN7tI", "Aj Ki Raat", 1),
-                ("ekr2nIex040", "Rose", 1)
-            ]
-            c.executemany("INSERT INTO video_list (video_id, name, is_tracking) VALUES (?, ?, ?)", default_videos)
-            db_conn.commit()
-            logger.info("Initialized default videos")
     except sqlite3.Error as e:
         logger.error(f"Database initialization failed: {e}")
     # Do not close db_conn here to reuse it
@@ -249,6 +239,11 @@ def start_background_tasks():
 def process_view_gains(video_id, data):
     processed_data = []
     c = db_conn.cursor()
+    # Fetch comparison video ID
+    c.execute("SELECT comparison_video_id FROM video_list WHERE video_id = ?", (video_id,))
+    result = c.fetchone()
+    comparison_video_id = result[0] if result else None
+
     for i, (date, timestamp, views, likes) in enumerate(data):
         view_gain = 0 if i == 0 or data[i-1][0] != date else views - data[i-1][2]
         like_gain = 0 if i == 0 or data[i-1][0] != date else likes - data[i-1][3]
@@ -256,8 +251,11 @@ def process_view_gains(video_id, data):
         
         view_hourly_gain = 0
         like_hourly_gain = 0
+        view_comparison_ratio = 0
         timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Calculate hourly view gain
         c.execute("""
             SELECT views FROM views 
             WHERE video_id = ? AND date = ? AND timestamp <= ? 
@@ -270,6 +268,7 @@ def process_view_gains(video_id, data):
         else:
             logger.debug(f"No hourly view gain for {video_id} at {timestamp}: no prior record")
         
+        # Calculate hourly like gain
         c.execute("""
             SELECT likes FROM views 
             WHERE video_id = ? AND date = ? AND timestamp <= ? 
@@ -282,8 +281,20 @@ def process_view_gains(video_id, data):
         else:
             logger.debug(f"No hourly like gain for {video_id} at {timestamp}: no prior record")
         
+        # Calculate view comparison ratio
+        if comparison_video_id:
+            c.execute("""
+                SELECT views FROM views 
+                WHERE video_id = ? AND date = ? AND timestamp = ?
+            """, (comparison_video_id, date, timestamp))
+            result = c.fetchone()
+            if result and result[0] > 0:
+                view_comparison_ratio = round(views / result[0], 2)
+            else:
+                logger.debug(f"No comparison views for {comparison_video_id} at {timestamp}")
+        
         processed_data.append((
-            timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio, like_hourly_gain
+            timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio, like_hourly_gain, view_comparison_ratio
         ))
     return processed_data
 
@@ -296,10 +307,10 @@ def index():
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
-        c.execute("SELECT video_id, name, is_tracking FROM video_list ORDER BY video_id = 'hTSaweR8qMI' DESC")
+        c.execute("SELECT video_id, name, is_tracking, comparison_video_id FROM video_list")
         video_list = c.fetchall()
 
-        for video_id, name, is_tracking in video_list:
+        for video_id, name, is_tracking, comparison_video_id in video_list:
             c.execute("SELECT DISTINCT date FROM views WHERE video_id = ? ORDER BY date DESC", (video_id,))
             dates = [row[0] for row in c.fetchall()]
             daily_data = {}
@@ -312,7 +323,8 @@ def index():
                 "video_id": video_id,
                 "name": name,
                 "daily_data": daily_data,
-                "is_tracking": bool(is_tracking)
+                "is_tracking": bool(is_tracking),
+                "comparison_video_id": comparison_video_id
             })
 
         conn.close()
@@ -347,6 +359,7 @@ def add_video():
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         video_link = request.form.get("video_link")
+        comparison_video_link = request.form.get("comparison_video_link")
 
         if not video_link:
             flash("Video link is required.", "error")
@@ -365,6 +378,24 @@ def add_video():
             conn.close()
             return redirect(url_for("index"))
 
+        comparison_video_id = None
+        if comparison_video_link:
+            comparison_video_id = extract_video_id(comparison_video_link)
+            if not comparison_video_id:
+                flash("Invalid comparison YouTube video link.", "error")
+                conn.close()
+                return redirect(url_for("index"))
+            comparison_title = fetch_video_title(comparison_video_id)
+            if not comparison_title:
+                flash("Unable to fetch comparison video title.", "error")
+                conn.close()
+                return redirect(url_for("index"))
+            # Store comparison video in video_list if not already present
+            c = conn.cursor()
+            c.execute("INSERT OR IGNORE INTO video_list (video_id, name, is_tracking) VALUES (?, ?, ?)",
+                      (comparison_video_id, comparison_title, 1))
+            conn.commit()
+
         stats = fetch_views([video_id])
         if not stats.get(video_id):
             flash("Unable to fetch video data. Check the video link or API key.", "error")
@@ -372,12 +403,16 @@ def add_video():
             return redirect(url_for("index"))
 
         c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_tracking) VALUES (?, ?, ?)",
-                  (video_id, title, 1))
+        c.execute("INSERT OR REPLACE INTO video_list (video_id, name, is_tracking, comparison_video_id) VALUES (?, ?, ?, ?)",
+                  (video_id, title, 1, comparison_video_id))
         conn.commit()
         conn.close()
 
         store_views(video_id, stats[video_id])
+        if comparison_video_id:
+            comp_stats = fetch_views([comparison_video_id])
+            if comp_stats.get(comparison_video_id):
+                store_views(comparison_video_id, comp_stats[comparison_video_id])
 
         flash("Video added successfully.", "success")
         return redirect(url_for("index"))
@@ -428,13 +463,13 @@ def export(video_id):
     try:
         conn = sqlite3.connect("views.db", check_same_thread=False)
         c = conn.cursor()
-        c.execute("SELECT name FROM video_list WHERE video_id = ?", (video_id,))
+        c.execute("SELECT name, comparison_video_id FROM video_list WHERE video_id = ?", (video_id,))
         result = c.fetchone()
         if not result:
             flash("Video not found.", "error")
             conn.close()
             return redirect(url_for("index"))
-        name = result[0]
+        name, comparison_video_id = result
 
         c.execute("SELECT date, timestamp, views, likes FROM views WHERE video_id = ? ORDER BY date, timestamp", (video_id,))
         rows = c.fetchall()
@@ -447,54 +482,11 @@ def export(video_id):
             
             view_hourly_gain = 0
             like_hourly_gain = 0
+            view_comparison_ratio = 0
             timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
             one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+            
             c.execute("""
                 SELECT views FROM views 
                 WHERE video_id = ? AND date = ? AND timestamp <= ? 
-                ORDER BY timestamp DESC LIMIT 1
-            """, (video_id, date, one_hour_ago))
-            result = c.fetchone()
-            if result:
-                previous_views = result[0]
-                view_hourly_gain = views - previous_views
-            
-            c.execute("""
-                SELECT likes FROM views 
-                WHERE video_id = ? AND date = ? AND timestamp <= ? 
-                ORDER BY timestamp DESC LIMIT 1
-            """, (video_id, date, one_hour_ago))
-            result = c.fetchone()
-            if result:
-                previous_likes = result[0]
-                like_hourly_gain = likes - previous_likes
-            
-            data.append({
-                "Date": date,
-                "Timestamp": timestamp,
-                "Views": views,
-                "Likes": likes,
-                "View Gain": view_gain,
-                "Like Gain": like_gain,
-                "View Hourly Gain": view_hourly_gain,
-                "Like Hourly Gain": like_hourly_gain,
-                "Views/Likes Ratio": view_like_ratio
-            })
-        df = pd.DataFrame(data)
-
-        conn.close()
-
-        excel_file = f"youtube_stats_{video_id}.xlsx"
-        df.to_excel(excel_file, sheet_name=name[:31], index=False, engine="openpyxl")
-
-        return send_file(excel_file, as_attachment=True, download_name=f"{name}_stats.xlsx")
-    except sqlite3.Error as e:
-        logger.error(f"Database error in export route: {e}", exc_info=True)
-        conn.close() if 'conn' in locals() else None
-        flash("Database error exporting data.", "error")
-        return redirect(url_for("index"))
-    except Exception as e:
-        logger.error(f"Error in export route: {e}", exc_info=True)
-        conn.close() if 'conn' in locals() else None
-        flash("Error exporting data.", "error")
-        return redirect(url_for("
+                ORDER BY 
