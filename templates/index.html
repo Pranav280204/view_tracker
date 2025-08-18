@@ -48,8 +48,7 @@
         }
         .video-thumbnail {
             border-radius: 10px;
-            margin-top: 10px;
-            max-width: 200px;
+ Vitality: 10px;
         }
         .accordion-button {
             font-weight: bold;
@@ -65,7 +64,6 @@
                 <p class="{{ 'error-message' if category == 'error' else 'success-message' }} text-center">{{ message | escape }}</p>
             {% endfor %}
         {% endif %}
-    {% endwith %}
     {% if error_message %}
         <p class="error-message text-center">{{ error_message | escape }}</p>
     {% endif %}
@@ -79,8 +77,8 @@
                 <input type="url" class="form-control" id="video_link" name="video_link" placeholder="e.g., https://www.youtube.com/watch?v=hTSaweR8qMI" required>
             </div>
             <div class="mb-3">
-                <label for="comparison_video_link" class="form-label">Comparison Video Link (Optional):</label>
-                <input type="url" class="form-control" id="comparison_video_link" name="comparison_video_link" placeholder="e.g., https://www.youtube.com/watch?v=example">
+                <label for="comparison_link" class="form-label">Comparison Video Link (Optional):</label>
+                <input type="url" class="form-control" id="comparison_link" name="comparison_link" placeholder="e.g., https://www.youtube.com/watch?v=comparison_video_id">
             </div>
             <button type="submit" class="btn btn-primary">Add Video</button>
         </form>
@@ -92,9 +90,6 @@
         <div class="d-flex justify-content-between align-items-center">
             <div>
                 <h3>{{ video.name | escape }} {% if not video.is_tracking %}(Not Tracking){% endif %}</h3>
-                {% if video.comparison_video_id %}
-                    <p>Compared to: <a href="https://www.youtube.com/watch?v={{ video.comparison_video_id }}" target="_blank">{{ video.comparison_video_id }}</a></p>
-                {% endif %}
                 <img src="https://img.youtube.com/vi/{{ video.video_id }}/0.jpg" class="video-thumbnail img-fluid" alt="Thumbnail">
             </div>
             <div class="video-actions">
@@ -130,11 +125,11 @@
                                     <th>View Hourly Gain</th>
                                     <th>Like Hourly Gain</th>
                                     <th>Views/Likes Ratio</th>
-                                    <th>View Comparison Ratio</th>
+                                    <th>Comparison View Ratio</th>
                                 </tr>
                                 </thead>
                                 <tbody>
-                                {% for timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio, like_hourly_gain, view_comparison_ratio in data[::-1] %}
+                                {% for timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio, like_hourly_gain, comp_view_ratio in data[::-1] %}
                                     <tr>
                                         <td>{{ timestamp }}</td>
                                         <td>{{ views | int }}</td>
@@ -144,7 +139,7 @@
                                         <td style="color: {{ 'green' if view_hourly_gain > 0 else 'red' if view_hourly_gain < 0 else 'gray' }};">{{ view_hourly_gain | int }}</td>
                                         <td style="color: {{ 'green' if like_hourly_gain > 0 else 'red' if like_hourly_gain < 0 else 'gray' }};">{{ like_hourly_gain | int }}</td>
                                         <td>{{ view_like_ratio }}</td>
-                                        <td>{{ view_comparison_ratio }}</td>
+                                        <td>{{ comp_view_ratio if comp_view_ratio is not none else '-' }}</td>
                                     </tr>
                                 {% endfor %}
                                 </tbody>
@@ -162,7 +157,7 @@
                                         label: 'Views',
                                         data: [{% for _, views, _, _, _, _, _, _, _ in data[::-1] %}{{ views | int }},{% endfor %}],
                                         borderColor: '#0d6efd',
-                                        backgroundColor: 'rgba(13, 110, 253, 0.2)',
+                                        backgroundColor: 'rgba(13, 100, 253, 0.2)',
                                         fill: true,
                                         tension: 0.4
                                     }, {
@@ -174,7 +169,7 @@
                                         tension: 0.4
                                     }, {
                                         label: 'View Gain',
-                                        data: [{% for _, _, _, view_gain, _, _, _, _, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
+                                        data: [iped{% for _, _, _, view_gain, _, _, _, _, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
                                         borderColor: '#28a745',
                                         backgroundColor: 'rgba(40, 167, 69, 0.2)',
                                         fill: true,
@@ -208,10 +203,10 @@
                                         fill: true,
                                         tension: 0.4
                                     }, {
-                                        label: 'View Comparison Ratio',
-                                        data: [{% for _, _, _, _, _, _, _, _, view_comparison_ratio in data[::-1] %}{{ view_comparison_ratio }},{% endfor %}],
-                                        borderColor: '#795548',
-                                        backgroundColor: 'rgba(121, 85, 72, 0.2)',
+                                        label: 'Comparison View Ratio',
+                                        data: [{% for _, _, _, _, _, _, _, _, comp_view_ratio in data[::-1] %}{{ comp_view_ratio if comp_view_ratio is not none else 'null' }},{% endfor %}],
+                                        borderColor: '#6c757d',
+                                        backgroundColor: 'rgba(108, 117, 125, 0.2)',
                                         fill: true,
                                         tension: 0.4
                                     }]
