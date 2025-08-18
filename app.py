@@ -1,4 +1,3 @@
-```python
 import os
 import threading
 import logging
@@ -556,4 +555,3 @@ start_background_tasks()
 
 if __name__ == "__main__":
     app.run(debug=True)
-```
