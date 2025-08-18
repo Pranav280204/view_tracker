@@ -48,7 +48,7 @@
         }
         .video-thumbnail {
             border-radius: 10px;
- Vitality: 10px;
+            max-width: 200px;
         }
         .accordion-button {
             font-weight: bold;
@@ -64,9 +64,10 @@
                 <p class="{{ 'error-message' if category == 'error' else 'success-message' }} text-center">{{ message | escape }}</p>
             {% endfor %}
         {% endif %}
-    {% if error_message %}
-        <p class="error-message text-center">{{ error_message | escape }}</p>
-    {% endif %}
+        {% if error_message %}
+            <p class="error-message text-center">{{ error_message | escape }}</p>
+        {% endif %}
+    {% endwith %}
 
     <!-- Add Video Form -->
     <div class="form-section">
@@ -169,7 +170,7 @@
                                         tension: 0.4
                                     }, {
                                         label: 'View Gain',
-                                        data: [iped{% for _, _, _, view_gain, _, _, _, _, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
+                                        data: [{% for _, _, _, view_gain, _, _, _, _, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
                                         borderColor: '#28a745',
                                         backgroundColor: 'rgba(40, 167, 69, 0.2)',
                                         fill: true,
