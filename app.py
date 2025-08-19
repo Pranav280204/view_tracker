@@ -253,9 +253,9 @@ def process_view_gains(video_id, data, comparison_video_id=None):
         like_hourly_gain = 0
         comp_view_ratio = None
         timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-        one_hour_ago = (timestamp_dt - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")  # Changed to 5 minutes
+        one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")  # 60-minute window
         
-        # Hourly view gain (5-minute interval for consistency with requirement)
+        # Hourly view gain (60-minute interval)
         c.execute("""
             SELECT views FROM views 
             WHERE video_id = ? AND date = ? AND timestamp <= ? 
@@ -266,9 +266,9 @@ def process_view_gains(video_id, data, comparison_video_id=None):
             previous_views = result[0]
             view_hourly_gain = views - previous_views
         else:
-            logger.debug(f"No 5-minute view gain for {video_id} at {timestamp}: no prior record")
+            logger.debug(f"No 60-minute view gain for {video_id} at {timestamp}: no prior record")
         
-        # Hourly like gain (5-minute interval)
+        # Hourly like gain (60-minute interval)
         c.execute("""
             SELECT likes FROM views 
             WHERE video_id = ? AND date = ? AND timestamp <= ? 
@@ -279,9 +279,9 @@ def process_view_gains(video_id, data, comparison_video_id=None):
             previous_likes = result[0]
             like_hourly_gain = likes - previous_likes
         else:
-            logger.debug(f"No 5-minute like gain for {video_id} at {timestamp}: no prior record")
+            logger.debug(f"No 60-minute like gain for {video_id} at {timestamp}: no prior record")
         
-        # Comparison view ratio (primary video's 5-minute gain / comparison video's 5-minute gain)
+        # Comparison view ratio (primary video's 60-minute gain / comparison video's 60-minute gain)
         if comparison_video_id:
             c.execute("""
                 SELECT views FROM views 
@@ -503,7 +503,7 @@ def export(video_id):
             like_hourly_gain = 0
             comp_view_ratio = None
             timestamp_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-            one_hour_ago = (timestamp_dt - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+            one_hour_ago = (timestamp_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
             
             c.execute("""
                 SELECT views FROM views 
