@@ -1,11 +1,13 @@
 # app_viewer.py
-from flask import Flask, render_template
+from flask import Flask, render_template, Response
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 import psycopg
 from psycopg.rows import dict_row
 import os
 import logging
+import csv
+import io
 
 # === Config ===
 POSTGRES_URL = os.getenv(
@@ -56,7 +58,65 @@ def calc_gains(rows):
         out.append((ts, views, gain, hourly))
     return out
 
-# === Route ===
+# === Helper: Convert video data to CSV rows ===
+def video_to_csv_rows(video):
+    rows = []
+    for date, day_data in video["daily_data"].items():
+        for ts, views, gain, hourly in day_data[::-1]:
+            rows.append({
+                "Date": date,
+                "Timestamp (IST)": ts,
+                "Views": views,
+                "View Gain": gain,
+                "Hourly Gain": hourly,
+            })
+    return rows
+
+# === Route: Export CSV for a video ===
+@app.route("/export/<video_id>")
+def export_csv(video_id):
+    try:
+        with get_db_cursor() as cur:
+            cur.execute("SELECT name FROM video_list WHERE video_id=%s AND is_tracking=1", (video_id,))
+            rec = cur.fetchone()
+            if not rec:
+                return "Video not found", 404
+            name = rec["name"]
+
+            cur.execute("SELECT DISTINCT date FROM views WHERE video_id=%s ORDER BY date DESC", (video_id,))
+            dates = [r["date"] for r in cur.fetchall()]
+
+            daily = {}
+            for d in dates:
+                cur.execute("""
+                    SELECT date, timestamp, views
+                    FROM views WHERE video_id=%s AND date=%s
+                    ORDER BY timestamp ASC
+                """, (video_id, d))
+                daily[d] = calc_gains(cur.fetchall())
+
+            video = {"video_id": video_id, "name": name, "daily_data": daily}
+    except Exception as e:
+        logging.error(f"Export error: {e}")
+        return "Service unavailable", 500
+
+    # Generate CSV
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["Date", "Timestamp (IST)", "Views", "View Gain", "Hourly Gain"])
+    writer.writeheader()
+    for row in video_to_csv_rows(video):
+        writer.writerow(row)
+
+    safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in name)
+    filename = f"{video_id}_{safe_name}.csv"
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment;filename={filename}"}
+    )
+
+# === Main Viewer Route ===
 @app.route("/")
 def viewer():
     videos = []
