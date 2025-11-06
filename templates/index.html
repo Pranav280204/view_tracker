@@ -111,6 +111,10 @@
         {% endif %}
     {% endwith %}
 
+    {% if error_message %}
+        <p class="error-message text-center">{{ error_message | escape }}</p>
+    {% endif %}
+
     <!-- Add Video Form (No Comparison) -->
     <div class="form-section">
         <h4 class="mb-3">Add a YouTube Video</h4>
@@ -134,11 +138,11 @@
             </div>
             <div class="video-actions mt-3 mt-md-0">
                 {% if video.is_tracking %}
-                <a href="/stop/{{ video.video_id }}" class="btn btn-outline-warning" 
-                   onclick="return confirm('Stop tracking this video?')" title="Stop tracking">Stop</a>
+                <a href="/stop_tracking/{{ video.video_id }}" class="btn btn-outline-warning" 
+                   onclick="return confirm('Stop tracking?')" title="Stop tracking">Stop</a>
                 {% endif %}
-                <a href="/remove/{{ video.video_id }}" class="btn btn-outline-danger" 
-                   onclick="return confirm('Remove this video and all data?')" title="Remove video">Remove</a>
+                <a href="/remove_video/{{ video.video_id }}" class="btn btn-outline-danger" 
+                   onclick="return confirm('Remove video and all data?')" title="Remove video">Remove</a>
             </div>
         </div>
 
@@ -170,15 +174,15 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for ts, views, gain, hourly in data[::-1] %}
+                                    {% for timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio, like_hourly_gain, comp_view_ratio in data[::-1] %}
                                     <tr>
-                                        <td>{{ ts }}</td>
+                                        <td>{{ timestamp }}</td>
                                         <td>{{ "{:,}".format(views) }}</td>
-                                        <td class="gain-{% if gain > 0 %}positive{% elif gain < 0 %}negative{% else %}zero{% endif %}">
-                                            {{ gain }}
+                                        <td class="gain-{% if view_gain > 0 %}positive{% elif view_gain < 0 %}negative{% else %}zero{% endif %}">
+                                            {{ view_gain }}
                                         </td>
-                                        <td class="gain-{% if hourly > 0 %}positive{% elif hourly < 0 %}negative{% else %}zero{% endif %}">
-                                            {{ hourly }}
+                                        <td class="gain-{% if view_hourly_gain > 0 %}positive{% elif view_hourly_gain < 0 %}negative{% else %}zero{% endif %}">
+                                            {{ view_hourly_gain }}
                                         </td>
                                     </tr>
                                     {% endfor %}
@@ -186,7 +190,7 @@
                             </table>
                         </div>
 
-                        <!-- Chart (Views + Gains) -->
+                        <!-- Chart (Views + Gains Only) -->
                         {% if data %}
                         <div class="chart-container">
                             <canvas id="chart_{{ video.video_id }}_{{ date }}"></canvas>
@@ -195,11 +199,11 @@
                             new Chart(document.getElementById('chart_{{ video.video_id }}_{{ date }}'), {
                                 type: 'line',
                                 data: {
-                                    labels: [{% for ts,_,_,_ in data[::-1] %}"{{ ts }}",{% endfor %}],
+                                    labels: [{% for timestamp, _, _, _, _, _, _, _, _ in data[::-1] %}"{{ timestamp }}",{% endfor %}],
                                     datasets: [
-                                        {label:'Views',data:[{% for _,v,_,_ in data[::-1] %}{{ v }},{% endfor %}],borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.2)',fill:true,tension:.4},
-                                        {label:'View Gain',data:[{% for _,_,g,_ in data[::-1] %}{{ g }},{% endfor %}],borderColor:'#28a745',backgroundColor:'rgba(40,167,69,0.2)',fill:true,tension:.4},
-                                        {label:'Hourly Gain',data:[{% for _,_,_,h in data[::-1] %}{{ h }},{% endfor %}],borderColor:'#ff851b',backgroundColor:'rgba(255,133,27,0.2)',fill:true,tension:.4}
+                                        {label:'Views',data:[{% for _, views, _, _, _, _, _, _, _ in data[::-1] %}{{ views }},{% endfor %}],borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.2)',fill:true,tension:.4},
+                                        {label:'View Gain',data:[{% for _, _, _, view_gain, _, _, _, _, _ in data[::-1] %}{{ view_gain }},{% endfor %}],borderColor:'#28a745',backgroundColor:'rgba(40,167,69,0.2)',fill:true,tension:.4},
+                                        {label:'Hourly Gain',data:[{% for _, _, _, _, _, view_hourly_gain, _, _, _ in data[::-1] %}{{ view_hourly_gain }},{% endfor %}],borderColor:'#ff851b',backgroundColor:'rgba(255,133,27,0.2)',fill:true,tension:.4}
                                     ]
                                 },
                                 options: {
