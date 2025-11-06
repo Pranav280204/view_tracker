@@ -15,9 +15,9 @@ try:
 except ImportError:
     psutil = None
 
-# NEW: postgres
-import psycopg2
-from psycopg2 import pool
+# --- Postgres (psycopg v3) ---
+import psycopg
+from psycopg_pool import ConnectionPool
 from contextlib import contextmanager
 
 app = Flask(__name__)
@@ -33,14 +33,13 @@ if not API_KEY:
     logger.error("YOUTUBE_API_KEY environment variable is not set")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
-# --- Postgres connection pool ---
+# --- Postgres connection pool (psycopg v3) ---
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    # Fallback to your provided URL; add sslmode=require for Render
     "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db?sslmode=require"
 )
 
-pg_pool: pool.SimpleConnectionPool | None = None
+pg_pool: ConnectionPool | None = None
 
 def init_pool():
     global pg_pool
