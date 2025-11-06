@@ -11,32 +11,31 @@ from flask import Flask, render_template, send_file, request, redirect, url_for,
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# ---------- PostgreSQL ----------
-import psycopg2
-from psycopg2.extras import RealDictCursor
-# --------------------------------
+# PostgreSQL v3 (psycopg)
+import psycopg
+from psycopg.rows import dict_row
 
 try:
     import psutil
 except ImportError:
     psutil = None
-    logging.warning("psutil module not found; memory monitoring disabled")
+    logging.warning("psutil not found – memory monitoring disabled")
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)          # For flash messages
+app.secret_key = os.urandom(24)
 
-# ------------------- Logging -------------------
-logging.basicConfig(level=logging.DEBUG,
+# Logging
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# ------------------- YouTube API -------------------
+# YouTube API
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 if not API_KEY:
-    logger.error("YOUTUBE_API_KEY environment variable is not set")
+    logger.error("YOUTUBE_API_KEY not set")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
-# ------------------- PostgreSQL -------------------
+# PostgreSQL (Render)
 POSTGRES_URL = (
     "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@"
     "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db"
@@ -45,12 +44,11 @@ POSTGRES_URL = (
 db_conn = None
 
 def get_db():
-    """Return a (re-used) connection with autocommit for the background thread."""
     global db_conn
     if db_conn is None or db_conn.closed:
-        db_conn = psycopg2.connect(
+        db_conn = psycopg.connect(
             POSTGRES_URL,
-            cursor_factory=RealDictCursor,
+            row_factory=dict_row,
             keepalives=1,
             keepalives_idle=30,
             keepalives_interval=10,
@@ -84,9 +82,7 @@ def init_db():
     conn.commit()
     logger.info("PostgreSQL tables ready")
 
-# -------------------------------------------------
-# Helper functions (unchanged except DB calls)
-# -------------------------------------------------
+# Helper functions
 def extract_video_id(video_link):
     try:
         parsed = urlparse(video_link)
@@ -141,9 +137,7 @@ def store_views(video_id, stats):
     """, (video_id, date, timestamp, stats.get("views", 0), stats.get("likes", 0)))
     logger.debug(f"Stored {video_id}: views={stats.get('views')}, likes={stats.get('likes')}")
 
-# -------------------------------------------------
-# Background task – ONLY 5-minute polling (SJ auto-add removed)
-# -------------------------------------------------
+# Background task – 5-minute polling only
 def background_tasks():
     while True:
         try:
@@ -151,10 +145,8 @@ def background_tasks():
                 p = psutil.Process()
                 mem = p.memory_info()
                 logger.debug(f"Memory RSS={mem.rss/1024/1024:.2f}MB VMS={mem.vms/1024/1024:.2f}MB")
-            else:
-                logger.debug("psutil unavailable – memory monitoring skipped")
 
-            # ---- wait until next 5-minute mark ----
+            # Wait until next 5-minute mark
             now = datetime.now(pytz.timezone("Asia/Kolkata"))
             mins = now.minute % 5
             secs = now.second + now.microsecond / 1_000_000
@@ -164,7 +156,7 @@ def background_tasks():
             logger.debug(f"Sleeping {wait:.1f}s until next 5-min mark")
             time.sleep(wait)
 
-            # ---- fetch stats for tracked videos ----
+            # Fetch stats
             cur = get_db().cursor()
             cur.execute("""
                 SELECT video_id, comparison_video_id
@@ -191,9 +183,7 @@ def start_background_tasks():
     t = threading.Thread(target=background_tasks, daemon=True)
     t.start()
 
-# -------------------------------------------------
-# Data processing (gains, ratios, etc.)
-# -------------------------------------------------
+# Data processing
 def process_view_gains(video_id, rows, comparison_video_id=None):
     processed = []
     cur = get_db().cursor()
@@ -203,10 +193,10 @@ def process_view_gains(video_id, rows, comparison_video_id=None):
         like_gain = 0 if i == 0 or rows[i-1]["date"] != date else likes - rows[i-1]["likes"]
         view_like_ratio = round(views / likes, 2) if likes else 0
 
-        # hourly gains (60-min window)
         ts_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         one_hour_ago = (ts_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
         view_hourly = like_hourly = 0
+
         cur.execute("""
             SELECT views FROM views
             WHERE video_id=%s AND date=%s AND timestamp<=%s
@@ -247,32 +237,23 @@ def process_view_gains(video_id, rows, comparison_video_id=None):
         ))
     return processed
 
-# -------------------------------------------------
-# Flask routes
-# -------------------------------------------------
+# Routes
 @app.route("/", methods=["GET"])
 def index():
     videos = []
     try:
         cur = get_db().cursor()
-        cur.execute("""
-            SELECT video_id, name, is_tracking, comparison_video_id
-            FROM video_list
-        """)
+        cur.execute("SELECT video_id, name, is_tracking, comparison_video_id FROM video_list")
         for row in cur.fetchall():
             vid = row["video_id"]
-            cur.execute("""
-                SELECT DISTINCT date FROM views
-                WHERE video_id=%s ORDER BY date DESC
-            """, (vid,))
+            cur.execute("SELECT DISTINCT date FROM views WHERE video_id=%s ORDER BY date DESC", (vid,))
             dates = [r["date"] for r in cur.fetchall()]
 
             daily = {}
             for d in dates:
                 cur.execute("""
                     SELECT date, timestamp, views, likes
-                    FROM views
-                    WHERE video_id=%s AND date=%s
+                    FROM views WHERE video_id=%s AND date=%s
                     ORDER BY timestamp ASC
                 """, (vid, d))
                 daily[d] = process_view_gains(vid, cur.fetchall(), row["comparison_video_id"])
@@ -447,9 +428,7 @@ def export(video_id):
         flash("Export failed.", "error")
         return redirect(url_for("index"))
 
-# -------------------------------------------------
 # Startup
-# -------------------------------------------------
 init_db()
 start_background_tasks()
 
