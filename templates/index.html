@@ -32,14 +32,8 @@
             border-radius: 10px;
             background-color: #f8f9fa;
         }
-        .error-message {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        .success-message {
-            color: #28a745;
-            font-weight: bold;
-        }
+        .error-message { color: #dc3545; font-weight: bold; }
+        .success-message { color: #28a745; font-weight: bold; }
         .form-section {
             background-color: #f1f3f5;
             border-radius: 15px;
@@ -92,24 +86,23 @@
             position: relative;
             height: 300px;
             width: 100%;
+            margin-top: 20px;
         }
+        .gain-positive { color: green; }
+        .gain-negative { color: red; }
+        .gain-zero { color: gray; }
         @media (max-width: 768px) {
-            .container {
-                padding: 15px;
-            }
-            .video-actions {
-                flex-direction: column;
-                gap: 10px;
-            }
-            .video-thumbnail {
-                max-width: 100%;
-            }
+            .container { padding: 15px; }
+            .video-actions { flex-direction: column; gap: 10px; }
+            .video-thumbnail { max-width: 100%; }
         }
     </style>
 </head>
 <body>
 <div class="container">
     <h1 class="text-center mb-4">YouTube Stats Tracker</h1>
+
+    <!-- Flash Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             {% for category, message in messages %}
@@ -117,27 +110,21 @@
             {% endfor %}
         {% endif %}
     {% endwith %}
-    {% if error_message %}
-        <p class="error-message text-center">{{ error_message | escape }}</p>
-    {% endif %}
 
-    <!-- Add Video Form -->
+    <!-- Add Video Form (No Comparison) -->
     <div class="form-section">
         <h4 class="mb-3">Add a YouTube Video</h4>
         <form method="POST" action="/add_video" id="add-video-form">
             <div class="mb-3">
                 <label for="video_link" class="form-label">YouTube Video Link:</label>
-                <input type="url" class="form-control" id="video_link" name="video_link" placeholder="e.g., https://www.youtube.com/watch?v=hTSaweR8qMI" required>
-            </div>
-            <div class="mb-3">
-                <label for="comparison_link" class="form-label">Comparison Video Link (Optional):</label>
-                <input type="url" class="form-control" id="comparison_link" name="comparison_link" placeholder="e.g., https://www.youtube.com/watch?v=YxWlaYCA8MU">
+                <input type="url" class="form-control" id="video_link" name="video_link" 
+                       placeholder="e.g., https://www.youtube.com/watch?v=hTSaweR8qMI" required>
             </div>
             <button type="submit" class="btn btn-primary w-100">Add Video</button>
         </form>
     </div>
 
-    <!-- Loop through videos -->
+    <!-- Videos -->
     {% for video in videos %}
     <div class="song-section">
         <div class="d-flex justify-content-between align-items-center flex-wrap">
@@ -146,154 +133,82 @@
                 <h3 class="mb-0">{{ video.name | escape }} {% if not video.is_tracking %}(Not Tracking){% endif %}</h3>
             </div>
             <div class="video-actions mt-3 mt-md-0">
-                <a href="/export/{{ video.video_id }}" class="btn btn-outline-success" title="Export data to Excel">Export</a>
                 {% if video.is_tracking %}
-                <a href="/stop_tracking/{{ video.video_id }}" class="btn btn-outline-warning" onclick="return confirm('Are you sure you want to stop tracking this video?')" title="Stop tracking this video">Stop Tracking</a>
+                <a href="/stop/{{ video.video_id }}" class="btn btn-outline-warning" 
+                   onclick="return confirm('Stop tracking this video?')" title="Stop tracking">Stop</a>
                 {% endif %}
-                <a href="/remove_video/{{ video.video_id }}" class="btn btn-outline-danger" onclick="return confirm('Are you sure you want to remove this video?')" title="Remove this video and its data">Remove</a>
+                <a href="/remove/{{ video.video_id }}" class="btn btn-outline-danger" 
+                   onclick="return confirm('Remove this video and all data?')" title="Remove video">Remove</a>
             </div>
         </div>
 
-        <!-- Accordion for daily data -->
+        <!-- Accordion -->
         <div class="accordion mt-4" id="accordion_{{ video.video_id }}">
             {% for date, data in video.daily_data.items() %}
             <div class="accordion-item">
-                <h2 class="accordion-header" id="heading_{{ video.video_id }}_{{ date }}">
-                    <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_{{ video.video_id }}_{{ date }}" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="collapse_{{ video.video_id }}_{{ date }}">
+                <h2 class="accordion-header">
+                    <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" 
+                            type="button" data-bs-toggle="collapse"
+                            data-bs-target="#collapse_{{ video.video_id }}_{{ date }}">
                         {{ date }}
                     </button>
                 </h2>
-                <div id="collapse_{{ video.video_id }}_{{ date }}" class="accordion-collapse collapse {{ 'show' if loop.first else '' }}" aria-labelledby="heading_{{ video.video_id }}_{{ date }}" data-bs-parent="#accordion_{{ video.video_id }}">
+                <div id="collapse_{{ video.video_id }}_{{ date }}" 
+                     class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
+                     data-bs-parent="#accordion_{{ video.video_id }}">
                     <div class="accordion-body">
-                        <!-- Data Table -->
+
+                        <!-- Table – 4 Columns Only -->
                         <div class="table-responsive">
                             <table class="table table-striped table-hover table-bordered">
                                 <thead class="table-dark">
-                                <tr>
-                                    <th>Timestamp (IST)</th>
-                                    <th>Views</th>
-                                    <th>Likes</th>
-                                    <th>View Gain</th>
-                                    <th>Like Gain</th>
-                                    <th>View Hourly Gain</th>
-                                    <th>Like Hourly Gain</th>
-                                    <th>Views/Likes Ratio</th>
-                                    <th>Comparison View Ratio</th>
-                                </tr>
+                                    <tr>
+                                        <th>Timestamp (IST)</th>
+                                        <th>Views</th>
+                                        <th>View Gain</th>
+                                        <th>View Hourly Gain</th>
+                                    </tr>
                                 </thead>
                                 <tbody>
-                                {% for timestamp, views, likes, view_gain, like_gain, view_hourly_gain, view_like_ratio, like_hourly_gain, comp_view_ratio in data[::-1] %}
+                                    {% for ts, views, gain, hourly in data[::-1] %}
                                     <tr>
-                                        <td>{{ timestamp }}</td>
-                                        <td>{{ views | int }}</td>
-                                        <td>{{ likes | int }}</td>
-                                        <td style="color: {{ 'green' if view_gain > 0 else 'red' if view_gain < 0 else 'gray' }};">{{ view_gain | int }}</td>
-                                        <td style="color: {{ 'green' if like_gain > 0 else 'red' if like_gain < 0 else 'gray' }};">{{ like_gain | int }}</td>
-                                        <td style="color: {{ 'green' if view_hourly_gain > 0 else 'red' if view_hourly_gain < 0 else 'gray' }};">{{ view_hourly_gain | int }}</td>
-                                        <td style="color: {{ 'green' if like_hourly_gain > 0 else 'red' if like_hourly_gain < 0 else 'gray' }};">{{ like_hourly_gain | int }}</td>
-                                        <td>{{ view_like_ratio }}</td>
-                                        <td>{{ comp_view_ratio if comp_view_ratio is not none else '-' }}</td>
+                                        <td>{{ ts }}</td>
+                                        <td>{{ "{:,}".format(views) }}</td>
+                                        <td class="gain-{% if gain > 0 %}positive{% elif gain < 0 %}negative{% else %}zero{% endif %}">
+                                            {{ gain }}
+                                        </td>
+                                        <td class="gain-{% if hourly > 0 %}positive{% elif hourly < 0 %}negative{% else %}zero{% endif %}">
+                                            {{ hourly }}
+                                        </td>
                                     </tr>
-                                {% endfor %}
+                                    {% endfor %}
                                 </tbody>
                             </table>
                         </div>
-                        <!-- Chart -->
+
+                        <!-- Chart (Views + Gains) -->
                         {% if data %}
-                        <div class="chart-container mt-4">
-                            <canvas id="statsChart_{{ video.video_id }}_{{ date }}"></canvas>
+                        <div class="chart-container">
+                            <canvas id="chart_{{ video.video_id }}_{{ date }}"></canvas>
                         </div>
                         <script>
-                            new Chart(document.getElementById('statsChart_{{ video.video_id }}_{{ date }}'), {
+                            new Chart(document.getElementById('chart_{{ video.video_id }}_{{ date }}'), {
                                 type: 'line',
                                 data: {
-                                    labels: [{% for timestamp, _, _, _, _, _, _, _, _ in data[::-1] %}"{{ timestamp | safe }}",{% endfor %}],
-                                    datasets: [{
-                                        label: 'Views',
-                                        data: [{% for _, views, _, _, _, _, _, _, _ in data[::-1] %}{{ views | int }},{% endfor %}],
-                                        borderColor: '#0d6efd',
-                                        backgroundColor: 'rgba(13, 110, 253, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'Likes',
-                                        data: [{% for _, _, likes, _, _, _, _, _, _ in data[::-1] %}{{ likes | int }},{% endfor %}],
-                                        borderColor: '#dc3545',
-                                        backgroundColor: 'rgba(220, 53, 69, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'View Gain',
-                                        data: [{% for _, _, _, view_gain, _, _, _, _, _ in data[::-1] %}{{ view_gain | int }},{% endfor %}],
-                                        borderColor: '#28a745',
-                                        backgroundColor: 'rgba(40, 167, 69, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'Like Gain',
-                                        data: [{% for _, _, _, _, like_gain, _, _, _, _ in data[::-1] %}{{ like_gain | int }},{% endfor %}],
-                                        borderColor: '#fd7e14',
-                                        backgroundColor: 'rgba(253, 126, 20, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'View Hourly Gain',
-                                        data: [{% for _, _, _, _, _, view_hourly_gain, _, _, _ in data[::-1] %}{{ view_hourly_gain | int }},{% endfor %}],
-                                        borderColor: '#ff851b',
-                                        backgroundColor: 'rgba(255, 133, 27, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'Like Hourly Gain',
-                                        data: [{% for _, _, _, _, _, _, _, like_hourly_gain, _ in data[::-1] %}{{ like_hourly_gain | int }},{% endfor %}],
-                                        borderColor: '#6f42c1',
-                                        backgroundColor: 'rgba(111, 66, 193, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'Views/Likes Ratio',
-                                        data: [{% for _, _, _, _, _, _, view_like_ratio, _, _ in data[::-1] %}{{ view_like_ratio }},{% endfor %}],
-                                        borderColor: '#17a2b8',
-                                        backgroundColor: 'rgba(23, 162, 184, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }, {
-                                        label: 'Comparison View Ratio',
-                                        data: [{% for _, _, _, _, _, _, _, _, comp_view_ratio in data[::-1] %}{{ comp_view_ratio if comp_view_ratio is not none else 'null' }},{% endfor %}],
-                                        borderColor: '#6c757d',
-                                        backgroundColor: 'rgba(108, 117, 125, 0.2)',
-                                        fill: true,
-                                        tension: 0.4
-                                    }]
+                                    labels: [{% for ts,_,_,_ in data[::-1] %}"{{ ts }}",{% endfor %}],
+                                    datasets: [
+                                        {label:'Views',data:[{% for _,v,_,_ in data[::-1] %}{{ v }},{% endfor %}],borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.2)',fill:true,tension:.4},
+                                        {label:'View Gain',data:[{% for _,_,g,_ in data[::-1] %}{{ g }},{% endfor %}],borderColor:'#28a745',backgroundColor:'rgba(40,167,69,0.2)',fill:true,tension:.4},
+                                        {label:'Hourly Gain',data:[{% for _,_,_,h in data[::-1] %}{{ h }},{% endfor %}],borderColor:'#ff851b',backgroundColor:'rgba(255,133,27,0.2)',fill:true,tension:.4}
+                                    ]
                                 },
                                 options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    plugins: {
-                                        legend: { position: 'top' },
-                                        title: { display: true, text: '{{ video.name | safe }} - {{ date }} Stats Trends' },
-                                        tooltip: {
-                                            callbacks: {
-                                                label: function(context) {
-                                                    let label = context.dataset.label || '';
-                                                    if (label) {
-                                                        label += ': ';
-                                                    }
-                                                    label += context.parsed.y.toLocaleString();
-                                                    return label;
-                                                }
-                                            }
-                                        }
-                                    },
-                                    scales: {
-                                        x: { title: { display: true, text: 'Timestamp (IST)' } },
-                                        y: { title: { display: true, text: 'Count' }, beginAtZero: false }
-                                    }
+                                    responsive:true,maintainAspectRatio:false,
+                                    plugins:{legend:{position:'top'},title:{display:true,text:'{{ video.name | safe }} – {{ date }}'}},
+                                    scales:{x:{title:{display:true,text:'Timestamp (IST)'}},y:{title:{display:true,text:'Count'},beginAtZero:false}}
                                 }
                             });
                         </script>
-                        {% else %}
-                        <p class="text-muted text-center">No data available for {{ date }}.</p>
                         {% endif %}
                     </div>
                 </div>
@@ -303,6 +218,7 @@
     </div>
     {% endfor %}
 </div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
