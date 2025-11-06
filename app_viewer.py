@@ -1,150 +1,130 @@
-# app_viewer.py
-from flask import Flask, render_template, send_file
-from contextlib import contextmanager
-from datetime import datetime, timedelta
-import psycopg
-from psycopg.rows import dict_row
-import os
-import logging
-import pandas as pd
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Live Stats</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.min.js"></script>
+    <style>
+        body{background:linear-gradient(to right,#f8f9fa,#e9ecef);font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;color:#333}
+        .container{max-width:1400px;margin-top:50px;padding:30px;background:#fff;border-radius:20px;box-shadow:0 10px 25px rgba(0,0,0,.1)}
+        .song-section{margin-bottom:60px;border-top:2px solid #dee2e6;padding-top:35px}
+        .table-responsive{max-height:450px;overflow-y:auto;border:1px solid #dee2e6;border-radius:10px;background:#f8f9fa}
+        .video-thumbnail{border-radius:15px;margin-top:15px;max-width:250px;box-shadow:0 4px 8px rgba(0,0,0,.1);transition:transform .3s}
+        .video-thumbnail:hover{transform:scale(1.05)}
+        .accordion-button{font-weight:bold;background:#e9ecef;color:#333;transition:background .3s}
+        .accordion-button:hover{background:#dee2e6}
+        .table th,.table td{vertical-align:middle;text-align:center}
+        .table thead th{position:sticky;top:0;background:#343a40;color:#fff;z-index:2}
+        .chart-container{position:relative;height:300px;width:100%;margin-top:20px}
+        .export-btn{margin-left:auto}
+        .no-data{text-align:center;color:#6c757d;font-style:italic;padding:2rem}
+        .footer{text-align:center;margin-top:3rem;color:#6c757d;font-size:.9rem}
+        @media(max-width:768px){.container{padding:15px}.video-thumbnail{max-width:100%}}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1 class="text-center mb-4">YouTube Live Stats</h1>
+    <p class="text-center text-muted">Real-time view tracking • Updated every 5 minutes</p>
 
-# === Configuration ===
-POSTGRES_URL = os.getenv(
-    "POSTGRES_URL",
-    "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@"
-    "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db"
-    "?sslmode=prefer"
-)
+    {% if not videos %}
+        <div class="no-data">No videos are being tracked right now.</div>
+    {% endif %}
 
-app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
+    {% for video in videos %}
+    <div class="song-section">
+        <div class="d-flex justify-content-between align-items-center flex-wrap mb-3">
+            <div class="d-flex align-items-center">
+                <img src="https://img.youtube.com/vi/{{ video.video_id }}/0.jpg"
+                     class="video-thumbnail me-3" alt="Thumbnail">
+                <h3 class="mb-0">{{ video.name | escape }}</h3>
+            </div>
+            <a href="/export/{{ video.video_id }}" class="btn btn-outline-success export-btn">Export to Excel</a>
+        </div>
 
-# === Database Context Manager ===
-@contextmanager
-def get_db_cursor():
-    conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
-    try:
-        yield conn.cursor()
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+        <div class="accordion mt-4" id="accordion_{{ video.video_id }}">
+            {% for date, data in video.daily_data.items() %}
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button {% if not loop.first %}collapsed{% endif %}"
+                            type="button" data-bs-toggle="collapse"
+                            data-bs-target="#collapse_{{ video.video_id }}_{{ date }}"
+                            aria-expanded="{{ 'true' if loop.first else 'false' }}">
+                        {{ date }}
+                    </button>
+                </h2>
+                <div id="collapse_{{ video.video_id }}_{{ date }}"
+                     class="accordion-collapse collapse {{ 'show' if loop.first else '' }}"
+                     data-bs-parent="#accordion_{{ video.video_id }}">
+                    <div class="accordion-body">
 
-# === Process Data: Only 4 Columns (In-Memory) ===
-def process_view_gains(rows):
-    if not rows:
-        return []
-    processed = []
-    for i, row in enumerate(rows):
-        timestamp = row["timestamp"]
-        views = row["views"]
-        date = row["date"]
+                        <!-- Table – 4 columns only -->
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover table-bordered">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>Timestamp (IST)</th>
+                                        <th>Views</th>
+                                        <th>View Gain</th>
+                                        <th>View Hourly Gain</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for ts, views, gain, hourly in data[::-1] %}
+                                    <tr>
+                                        <td>{{ ts }}</td>
+                                        <td>{{ "{:,}".format(views) }}</td>
+                                        <td style="color:{{ 'green' if gain>0 else 'red' if gain<0 else 'gray' }};">
+                                            {{ gain }}
+                                        </td>
+                                        <td style="color:{{ 'green' if hourly>0 else 'red' if hourly<0 else 'gray' }};">
+                                            {{ hourly }}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
 
-        # View Gain (since last entry on same day)
-        view_gain = 0
-        if i > 0 and rows[i-1]["date"] == date:
-            view_gain = views - rows[i-1]["views"]
+                        <!-- Chart (Views + Gains) -->
+                        {% if data %}
+                        <div class="chart-container">
+                            <canvas id="chart_{{ video.video_id }}_{{ date }}"></canvas>
+                        </div>
+                        <script>
+                            new Chart(document.getElementById('chart_{{ video.video_id }}_{{ date }}'), {
+                                type: 'line',
+                                data: {
+                                    labels: [{% for ts,_,_,_ in data[::-1] %}"{{ ts }}",{% endfor %}],
+                                    datasets: [
+                                        {label:'Views',data:[{% for _,v,_,_ in data[::-1] %}{{ v }},{% endfor %}],borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.2)',fill:true,tension:.4},
+                                        {label:'View Gain',data:[{% for _,_,g,_ in data[::-1] %}{{ g }},{% endfor %}],borderColor:'#28a745',backgroundColor:'rgba(40,167,69,0.2)',fill:true,tension:.4},
+                                        {label:'Hourly Gain',data:[{% for _,_,_,h in data[::-1] %}{{ h }},{% endfor %}],borderColor:'#ff851b',backgroundColor:'rgba(255,133,27,0.2)',fill:true,tension:.4}
+                                    ]
+                                },
+                                options: {
+                                    responsive:true,maintainAspectRatio:false,
+                                    plugins:{legend:{position:'top'},title:{display:true,text:'{{ video.name | safe }} – {{ date }}'}},
+                                    scales:{x:{title:{display:true,text:'Timestamp (IST)'}},y:{title:{display:true,text:'Count'},beginAtZero:false}}
+                                }
+                            });
+                        </script>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
 
-        # View Hourly Gain
-        view_hourly = 0
-        try:
-            ts_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-            one_hour_ago = (ts_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
-            for prev in reversed(rows[:i]):
-                if prev["date"] != date:
-                    break
-                if prev["timestamp"] <= one_hour_ago:
-                    view_hourly = views - prev["views"]
-                    break
-        except:
-            view_hourly = 0
+    <div class="footer">
+        Live data powered by YouTube API • Updated every 5 minutes
+    </div>
+</div>
 
-        processed.append((timestamp, views, view_gain, view_hourly))
-    return processed
-
-# === Route: Public Viewer ===
-@app.route("/")
-def viewer():
-    videos = []
-    try:
-        with get_db_cursor() as cur:
-            # Get only active videos
-            cur.execute("SELECT video_id, name FROM video_list WHERE is_tracking = 1 ORDER BY name")
-            for row in cur.fetchall():
-                vid = row["video_id"]
-                name = row["name"]
-
-                # Get all dates
-                cur.execute("SELECT DISTINCT date FROM views WHERE video_id=%s ORDER BY date DESC", (vid,))
-                dates = [r["date"] for r in cur.fetchall()]
-
-                daily_data = {}
-                for d in dates:
-                    cur.execute("""
-                        SELECT date, timestamp, views
-                        FROM views
-                        WHERE video_id=%s AND date=%s
-                        ORDER BY timestamp ASC
-                    """, (vid, d))
-                    rows = cur.fetchall()
-                    daily_data[d] = process_view_gains(rows)
-
-                videos.append({
-                    "video_id": vid,
-                    "name": name,
-                    "daily_data": daily_data
-                })
-
-        return render_template("viewer.html", videos=videos)
-
-    except Exception as e:
-        logging.error(f"Viewer error: {e}")
-        return render_template("viewer.html", videos=[], error_message="Service temporarily unavailable.")
-
-# === Export Route (For Users) ===
-@app.route("/export/<video_id>")
-def export(video_id):
-    try:
-        with get_db_cursor() as cur:
-            cur.execute("SELECT name FROM video_list WHERE video_id=%s AND is_tracking=1", (video_id,))
-            row = cur.fetchone()
-            if not row:
-                return "Video not found or not tracked.", 404
-            name = row["name"]
-
-            cur.execute("""
-                SELECT timestamp, views, date
-                FROM views
-                WHERE video_id=%s
-                ORDER BY date, timestamp
-            """, (video_id,))
-            rows = cur.fetchall()
-
-        if not rows:
-            return "No data available.", 404
-
-        # Process data for export (4 columns)
-        processed_data = process_view_gains(rows)
-        export_data = []
-        for ts, views, gain, hourly in processed_data:
-            export_data.append({
-                "Timestamp (IST)": ts,
-                "Views": views,
-                "View Gain": gain,
-                "View Hourly Gain": hourly
-            })
-
-        df = pd.DataFrame(export_data)
-        fname = f"{name.replace(' ', '_')}_stats.xlsx"
-        df.to_excel(fname, index=False, engine="openpyxl")
-        return send_file(fname, as_attachment=True, download_name=f"{name}_stats.xlsx")
-
-    except Exception as e:
-        logging.error(f"Export error: {e}")
-        return "Export failed.", 500
-
-# === Run ===
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
