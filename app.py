@@ -1,4 +1,3 @@
-# app.py
 import os
 import threading
 import logging
