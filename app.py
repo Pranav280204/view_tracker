@@ -340,10 +340,12 @@ def export(video_id):
 
 
 # -------------------------- Startup --------------------------
+# Startup
+
 init_db()
-start_background()
+
+start_background_tasks()
 
 if __name__ == "__main__":
-    # Render gives $PORT
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+
+    app.run(debug=True)
