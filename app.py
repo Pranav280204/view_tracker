@@ -25,9 +25,10 @@ youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
 # PostgreSQL URL
 POSTGRES_URL = os.getenv("DATABASE_URL",
-    "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@"
-    "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db"
+    "postgresql://youtube_oylg_user:hpBIs9shV2QtNUtvpMSa1opUa8zZszaq@"
+    "dpg-d486o56r433s739svkj0-a.oregon-postgres.render.com/youtube_oylg"
 )
+
 
 db_conn = None
 _background_thread = None
