@@ -1,3 +1,4 @@
+# app.py
 import os
 import threading
 import logging
@@ -12,22 +13,23 @@ from googleapiclient.errors import HttpError
 import psycopg
 from psycopg.rows import dict_row
 
-app = Flask(__name__)
+app = Flask(_name_)
 app.secret_key = os.urandom(24)
 
 # Logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 # YouTube API
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
 # PostgreSQL
-POSTGRES_URL = os.getenv("DATABASE_URL",
+POSTGRES_URL = os.getenv("DATABASE_URL", 
     "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@"
     "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db")
+
 db_conn = None
 _background_thread = None
 
@@ -62,10 +64,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS video_list (
             video_id TEXT PRIMARY KEY,
             name TEXT,
-            is_tracking INTEGER DEFAULT 1,
-            lower_target BIGINT DEFAULT NULL,
-            upper_target BIGINT DEFAULT NULL,
-            target_time TIMESTAMP DEFAULT NULL
+            is_tracking INTEGER DEFAULT 1
         );
     """)
     logger.info("Tables ready")
@@ -105,6 +104,7 @@ def safe_store(vid, stats):
     now = datetime.now(ist)
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
     date = now.strftime("%Y-%m-%d")
+
     cur.execute("DELETE FROM views WHERE video_id=%s AND timestamp=%s", (vid, ts))
     cur.execute("""
         INSERT INTO views (video_id, date, timestamp, views, likes)
@@ -124,6 +124,7 @@ def start_background():
                 wait = 300 - (now.minute % 5 * 60 + now.second)
                 if wait <= 0: wait += 300
                 time.sleep(wait)
+
                 cur = get_db().cursor()
                 cur.execute("SELECT video_id FROM video_list WHERE is_tracking=1")
                 ids = [r["video_id"] for r in cur.fetchall()]
@@ -148,10 +149,12 @@ def process_gains(vid, rows):
         views = row["views"]
         ts = row["timestamp"]
         date = row["date"]
+
         # Gain since last poll
         gain = 0
         if i > 0 and rows[i-1]["date"] == date:
             gain = views - rows[i-1]["views"]
+
         # Hourly gain
         ts_dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
         one_ago = (ts_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -163,6 +166,7 @@ def process_gains(vid, rows):
         """, (vid, date, one_ago))
         prev = cur.fetchone()
         hourly = views - prev["views"] if prev else 0
+
         # EXACTLY 4 items → timestamp, views, gain, hourly
         result.append((ts, views, gain, hourly))
     return result
@@ -170,17 +174,11 @@ def process_gains(vid, rows):
 @app.route("/", methods=["GET"])
 def index():
     videos = []
-    ist = pytz.timezone("Asia/Kolkata")
     try:
         cur = get_db().cursor()
-        cur.execute("SELECT video_id, name, is_tracking, lower_target, upper_target, target_time FROM video_list")
+        cur.execute("SELECT video_id, name, is_tracking FROM video_list")
         for row in cur.fetchall():
             vid = row["video_id"]
-            lower_target = row["lower_target"]
-            upper_target = row["upper_target"]
-            target_time = row["target_time"]
-            if target_time:
-                target_time = ist.localize(target_time)
             cur.execute("SELECT DISTINCT date FROM views WHERE video_id=%s ORDER BY date DESC", (vid,))
             dates = [r["date"] for r in cur.fetchall()]
             daily = {}
@@ -191,43 +189,11 @@ def index():
                     ORDER BY timestamp ASC
                 """, (vid, d))
                 daily[d] = process_gains(vid, cur.fetchall())
-            # Get latest views
-            cur.execute("SELECT views FROM views WHERE video_id=%s ORDER BY timestamp DESC LIMIT 1", (vid,))
-            latest = cur.fetchone()
-            latest_views = latest["views"] if latest else 0
-            target_data = None
-            if lower_target is not None and target_time is not None:
-                now = datetime.now(ist)
-                req_5min_lower = req_hourly_lower = req_5min_upper = req_hourly_upper = None
-                if target_time > now:
-                    time_left_seconds = (target_time - now).total_seconds()
-                    if time_left_seconds > 0:
-                        hours_left = time_left_seconds / 3600
-                        five_min_intervals = time_left_seconds / 300
-                        needed_lower = max(0, lower_target - latest_views)
-                        req_5min_lower = round(needed_lower / five_min_intervals) if five_min_intervals > 0 else "Immediate"
-                        req_hourly_lower = round(needed_lower / hours_left) if hours_left > 0 else "Immediate"
-                        if upper_target is not None:
-                            needed_upper = max(0, upper_target - latest_views)
-                            req_5min_upper = round(needed_upper / five_min_intervals) if five_min_intervals > 0 else "Immediate"
-                            req_hourly_upper = round(needed_upper / hours_left) if hours_left > 0 else "Immediate"
-                else:
-                    req_5min_lower = req_hourly_lower = req_5min_upper = req_hourly_upper = "Time passed"
-                target_data = {
-                    "lower": lower_target,
-                    "upper": upper_target,
-                    "target_time": target_time.strftime("%Y-%m-%dT%H:%M") if target_time else None,
-                    "req_5min_lower": req_5min_lower,
-                    "req_hourly_lower": req_hourly_lower,
-                    "req_5min_upper": req_5min_upper if upper_target else None,
-                    "req_hourly_upper": req_hourly_upper if upper_target else None,
-                }
             videos.append({
                 "video_id": vid,
                 "name": row["name"],
                 "daily_data": daily,
-                "is_tracking": bool(row["is_tracking"]),
-                "target_data": target_data
+                "is_tracking": bool(row["is_tracking"])
             })
         return render_template("index.html", videos=videos)
     except Exception as e:
@@ -249,6 +215,7 @@ def add_video():
     if vid not in stats:
         flash("Can't fetch stats", "error")
         return redirect(url_for("index"))
+
     cur = get_db().cursor()
     cur.execute("""
         INSERT INTO video_list (video_id, name, is_tracking)
@@ -257,44 +224,6 @@ def add_video():
     """, (vid, title, title))
     safe_store(vid, stats[vid])
     flash(f"Added: {title}", "success")
-    return redirect(url_for("index"))
-
-@app.route("/set_targets/<video_id>", methods=["POST"])
-def set_targets(video_id):
-    ist = pytz.timezone("Asia/Kolkata")
-    lower_str = request.form.get("lower_target")
-    upper_str = request.form.get("upper_target")
-    target_time_str = request.form.get("target_time")
-    lower = None
-    upper = None
-    target_time = None
-    if lower_str:
-        try:
-            lower = int(lower_str)
-        except ValueError:
-            flash("Invalid lower target", "error")
-            return redirect(url_for("index"))
-    if upper_str:
-        try:
-            upper = int(upper_str)
-        except ValueError:
-            flash("Invalid upper target", "error")
-            return redirect(url_for("index"))
-    if target_time_str:
-        try:
-            target_time = datetime.strptime(target_time_str, "%Y-%m-%dT%H:%M")
-            target_time = ist.localize(target_time).replace(tzinfo=None)  # Store as naive in DB
-        except ValueError:
-            flash("Invalid target time format (use YYYY-MM-DDTHH:MM)", "error")
-            return redirect(url_for("index"))
-    if lower is None and upper is None and target_time is None:
-        flash("No targets provided", "error")
-        return redirect(url_for("index"))
-    cur = get_db().cursor()
-    cur.execute("""
-        UPDATE video_list SET lower_target=%s, upper_target=%s, target_time=%s WHERE video_id=%s
-    """, (lower, upper, target_time, video_id))
-    flash("Targets updated", "success")
     return redirect(url_for("index"))
 
 @app.route("/stop_tracking/<video_id>")
@@ -330,5 +259,6 @@ def export(video_id):
 # START
 init_db()
 start_background()
-if __name__ == "__main__":
+
+if _name_ == "_main_":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
