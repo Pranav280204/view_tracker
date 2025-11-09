@@ -1,4 +1,3 @@
-# app.py
 import os
 import threading
 import logging
@@ -16,36 +15,54 @@ from psycopg.rows import dict_row
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# Logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s %(levelname)s: %(message)s')
+# Logging setup
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
 # YouTube API
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
-# PostgreSQL
-POSTGRES_URL = os.getenv("DATABASE_URL", 
+# PostgreSQL URL
+POSTGRES_URL = os.getenv("DATABASE_URL",
     "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@"
-    "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db")
+    "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db"
+)
 
 db_conn = None
 _background_thread = None
 
+
+# ---------- DATABASE CONNECTION (FIXED) ----------
 def get_db():
     global db_conn
-    if db_conn is None or db_conn.closed:
-        db_conn = psycopg.connect(
-            POSTGRES_URL,
-            row_factory=dict_row,
-            keepalives=1,
-            keepalives_idle=30,
-            keepalives_interval=10,
-            keepalives_count=5,
-        )
-        db_conn.autocommit = True
-    return db_conn
+    try:
+        if db_conn is None or db_conn.closed:
+            raise psycopg.OperationalError("No active connection")
+        # Test connection
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT 1;")
+        return db_conn
+    except Exception:
+        logger.warning("Reconnecting to PostgreSQL...")
+        try:
+            db_conn = psycopg.connect(
+                POSTGRES_URL,
+                row_factory=dict_row,
+                autocommit=True,
+                connect_timeout=10,
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=5,
+                sslmode="require"
+            )
+            logger.info("Database reconnected successfully")
+            return db_conn
+        except Exception as e:
+            logger.error(f"DB reconnect failed: {e}")
+            raise
+
 
 def init_db():
     conn = get_db()
@@ -69,6 +86,8 @@ def init_db():
     """)
     logger.info("Tables ready")
 
+
+# ---------- YOUTUBE HELPERS ----------
 def extract_video_id(link):
     parsed = urlparse(link)
     if parsed.hostname in ("youtube.com", "www.youtube.com"):
@@ -77,27 +96,34 @@ def extract_video_id(link):
         return parsed.path[1:] if len(parsed.path) > 1 else None
     return None
 
+
 def fetch_video_title(vid):
-    if not youtube: return "Unknown Video"
+    if not youtube:
+        return "Unknown Video"
     try:
         resp = youtube.videos().list(part="snippet", id=vid).execute()
         return resp["items"][0]["snippet"]["title"][:50] if resp["items"] else "Unknown"
     except:
         return "Unknown"
 
+
 def fetch_views(ids):
-    if not youtube or not ids: return {}
+    if not youtube or not ids:
+        return {}
     try:
         resp = youtube.videos().list(part="statistics", id=",".join(ids)).execute()
-        return {item["id"]: {
-            "views": int(item["statistics"].get("viewCount", 0)),
-            "likes": int(item["statistics"].get("likeCount", 0))
-        } for item in resp.get("items", [])}
+        return {
+            item["id"]: {
+                "views": int(item["statistics"].get("viewCount", 0)),
+                "likes": int(item["statistics"].get("likeCount", 0))
+            } for item in resp.get("items", [])
+        }
     except Exception as e:
         logger.error(f"API error: {e}")
         return {}
 
-# SAFE + NO DUPLICATES
+
+# ---------- SAFE INSERT ----------
 def safe_store(vid, stats):
     cur = get_db().cursor()
     ist = pytz.timezone("Asia/Kolkata")
@@ -112,35 +138,51 @@ def safe_store(vid, stats):
     """, (vid, date, ts, stats["views"], stats["likes"]))
     logger.info(f"STORED {vid} → {stats['views']:,} views")
 
-# SINGLETON BACKGROUND TASK
+
+# ---------- BACKGROUND THREAD ----------
 def start_background():
     global _background_thread
     if _background_thread:
         return
+
     def run():
         while True:
             try:
+                conn = get_db()
+                cur = conn.cursor()
+
                 now = datetime.now(pytz.timezone("Asia/Kolkata"))
                 wait = 300 - (now.minute % 5 * 60 + now.second)
-                if wait <= 0: wait += 300
+                if wait <= 0:
+                    wait += 300
                 time.sleep(wait)
 
-                cur = get_db().cursor()
                 cur.execute("SELECT video_id FROM video_list WHERE is_tracking=1")
                 ids = [r["video_id"] for r in cur.fetchall()]
                 if ids:
-                    stats = fetch_views(ids)
+                    stats = {}
+                    # Fetch in chunks (50 IDs max per API call)
+                    for chunk in [ids[i:i+50] for i in range(0, len(ids), 50)]:
+                        stats.update(fetch_views(chunk))
                     for vid in ids:
                         if vid in stats:
                             safe_store(vid, stats[vid])
+            except psycopg.OperationalError as e:
+                logger.error(f"DB connection dropped: {e}")
+                global db_conn
+                db_conn = None
+                time.sleep(10)
+                continue
             except Exception as e:
                 logger.error(f"BG error: {e}")
                 time.sleep(60)
+
     _background_thread = threading.Thread(target=run, daemon=True)
     _background_thread.start()
     logger.info("Background task started")
 
-# ONLY 4 VALUES PER ROW → matches your template
+
+# ---------- DATA PROCESSING ----------
 def process_gains(vid, rows):
     if not rows:
         return []
@@ -167,10 +209,11 @@ def process_gains(vid, rows):
         prev = cur.fetchone()
         hourly = views - prev["views"] if prev else 0
 
-        # EXACTLY 4 items → timestamp, views, gain, hourly
         result.append((ts, views, gain, hourly))
     return result
 
+
+# ---------- ROUTES ----------
 @app.route("/", methods=["GET"])
 def index():
     videos = []
@@ -200,6 +243,7 @@ def index():
         logger.error(f"Index error: {e}", exc_info=True)
         return render_template("index.html", videos=[], error_message="Loading...")
 
+
 @app.route("/add_video", methods=["POST"])
 def add_video():
     link = request.form.get("video_link", "").strip()
@@ -226,6 +270,7 @@ def add_video():
     flash(f"Added: {title}", "success")
     return redirect(url_for("index"))
 
+
 @app.route("/stop_tracking/<video_id>")
 def toggle(video_id):
     cur = get_db().cursor()
@@ -235,6 +280,7 @@ def toggle(video_id):
     flash("Paused" if current else "Resumed", "success")
     return redirect(url_for("index"))
 
+
 @app.route("/remove_video/<video_id>")
 def remove(video_id):
     cur = get_db().cursor()
@@ -242,6 +288,7 @@ def remove(video_id):
     cur.execute("DELETE FROM video_list WHERE video_id=%s", (video_id,))
     flash("Removed", "success")
     return redirect(url_for("index"))
+
 
 @app.route("/export/<video_id>")
 def export(video_id):
@@ -256,7 +303,8 @@ def export(video_id):
     df.to_excel(fname, index=False)
     return send_file(fname, as_attachment=True, download_name=f"{name}_views.xlsx")
 
-# START
+
+# ---------- APP START ----------
 init_db()
 start_background()
 
