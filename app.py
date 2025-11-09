@@ -19,19 +19,19 @@ app.secret_key = os.urandom(24)
 # Logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(_name_)
 
 # YouTube API
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
 # PostgreSQL
-POSTGRES_URL = os.getenv("DATABASE_URL",
+POSTGRES_URL = os.getenv("DATABASE_URL", 
     "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@"
     "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db")
+
 db_conn = None
 _background_thread = None
-
 
 def get_db():
     global db_conn
@@ -46,7 +46,6 @@ def get_db():
         )
         db_conn.autocommit = True
     return db_conn
-
 
 def init_db():
     conn = get_db()
@@ -70,7 +69,6 @@ def init_db():
     """)
     logger.info("Tables ready")
 
-
 def extract_video_id(link):
     parsed = urlparse(link)
     if parsed.hostname in ("youtube.com", "www.youtube.com"):
@@ -79,20 +77,16 @@ def extract_video_id(link):
         return parsed.path[1:] if len(parsed.path) > 1 else None
     return None
 
-
 def fetch_video_title(vid):
-    if not youtube:
-        return "Unknown Video"
+    if not youtube: return "Unknown Video"
     try:
         resp = youtube.videos().list(part="snippet", id=vid).execute()
         return resp["items"][0]["snippet"]["title"][:50] if resp["items"] else "Unknown"
     except:
         return "Unknown"
 
-
 def fetch_views(ids):
-    if not youtube or not ids:
-        return {}
+    if not youtube or not ids: return {}
     try:
         resp = youtube.videos().list(part="statistics", id=",".join(ids)).execute()
         return {item["id"]: {
@@ -103,7 +97,6 @@ def fetch_views(ids):
         logger.error(f"API error: {e}")
         return {}
 
-
 # SAFE + NO DUPLICATES
 def safe_store(vid, stats):
     cur = get_db().cursor()
@@ -111,6 +104,7 @@ def safe_store(vid, stats):
     now = datetime.now(ist)
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
     date = now.strftime("%Y-%m-%d")
+
     cur.execute("DELETE FROM views WHERE video_id=%s AND timestamp=%s", (vid, ts))
     cur.execute("""
         INSERT INTO views (video_id, date, timestamp, views, likes)
@@ -118,26 +112,22 @@ def safe_store(vid, stats):
     """, (vid, date, ts, stats["views"], stats["likes"]))
     logger.info(f"STORED {vid} → {stats['views']:,} views")
 
-
 # SINGLETON BACKGROUND TASK
 def start_background():
     global _background_thread
     if _background_thread:
         return
-
     def run():
         while True:
             try:
                 now = datetime.now(pytz.timezone("Asia/Kolkata"))
                 wait = 300 - (now.minute % 5 * 60 + now.second)
-                if wait <= 0:
-                    wait += 300
+                if wait <= 0: wait += 300
                 time.sleep(wait)
 
                 cur = get_db().cursor()
                 cur.execute("SELECT video_id FROM video_list WHERE is_tracking=1")
                 ids = [r["video_id"] for r in cur.fetchall()]
-
                 if ids:
                     stats = fetch_views(ids)
                     for vid in ids:
@@ -146,11 +136,9 @@ def start_background():
             except Exception as e:
                 logger.error(f"BG error: {e}")
                 time.sleep(60)
-
     _background_thread = threading.Thread(target=run, daemon=True)
     _background_thread.start()
     logger.info("Background task started")
-
 
 # ONLY 4 VALUES PER ROW → matches your template
 def process_gains(vid, rows):
@@ -161,10 +149,12 @@ def process_gains(vid, rows):
         views = row["views"]
         ts = row["timestamp"]
         date = row["date"]
+
         # Gain since last poll
         gain = 0
         if i > 0 and rows[i-1]["date"] == date:
             gain = views - rows[i-1]["views"]
+
         # Hourly gain
         ts_dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
         one_ago = (ts_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -176,10 +166,10 @@ def process_gains(vid, rows):
         """, (vid, date, one_ago))
         prev = cur.fetchone()
         hourly = views - prev["views"] if prev else 0
+
         # EXACTLY 4 items → timestamp, views, gain, hourly
         result.append((ts, views, gain, hourly))
     return result
-
 
 @app.route("/", methods=["GET"])
 def index():
@@ -210,19 +200,16 @@ def index():
         logger.error(f"Index error: {e}", exc_info=True)
         return render_template("index.html", videos=[], error_message="Loading...")
 
-
 @app.route("/add_video", methods=["POST"])
 def add_video():
     link = request.form.get("video_link", "").strip()
     if not link:
         flash("Enter YouTube link", "error")
         return redirect(url_for("index"))
-
     vid = extract_video_id(link)
     if not vid:
         flash("Invalid link", "error")
         return redirect(url_for("index"))
-
     title = fetch_video_title(vid)
     stats = fetch_views([vid])
     if vid not in stats:
@@ -239,7 +226,6 @@ def add_video():
     flash(f"Added: {title}", "success")
     return redirect(url_for("index"))
 
-
 @app.route("/stop_tracking/<video_id>")
 def toggle(video_id):
     cur = get_db().cursor()
@@ -249,7 +235,6 @@ def toggle(video_id):
     flash("Paused" if current else "Resumed", "success")
     return redirect(url_for("index"))
 
-
 @app.route("/remove_video/<video_id>")
 def remove(video_id):
     cur = get_db().cursor()
@@ -257,7 +242,6 @@ def remove(video_id):
     cur.execute("DELETE FROM video_list WHERE video_id=%s", (video_id,))
     flash("Removed", "success")
     return redirect(url_for("index"))
-
 
 @app.route("/export/<video_id>")
 def export(video_id):
@@ -272,10 +256,9 @@ def export(video_id):
     df.to_excel(fname, index=False)
     return send_file(fname, as_attachment=True, download_name=f"{name}_views.xlsx")
 
-
 # START
 init_db()
 start_background()
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
