@@ -19,7 +19,7 @@ app.secret_key = os.urandom(24)
 # Logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s: %(message)s')
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 
 # YouTube API
 API_KEY = os.getenv("YOUTUBE_API_KEY")
