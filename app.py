@@ -1,4 +1,3 @@
-# app.py
 import os
 import threading
 import logging
@@ -12,27 +11,21 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import psycopg
 from psycopg.rows import dict_row
-
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
-
 # Logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
-
 # YouTube API
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
-
 # PostgreSQL
-POSTGRES_URL = os.getenv("DATABASE_URL", 
+POSTGRES_URL = os.getenv("DATABASE_URL",
     "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@"
     "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db")
-
 db_conn = None
 _background_thread = None
-
 def get_db():
     global db_conn
     if db_conn is None or db_conn.closed:
@@ -46,7 +39,6 @@ def get_db():
         )
         db_conn.autocommit = True
     return db_conn
-
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -64,11 +56,29 @@ def init_db():
         CREATE TABLE IF NOT EXISTS video_list (
             video_id TEXT PRIMARY KEY,
             name TEXT,
-            is_tracking INTEGER DEFAULT 1
+            is_tracking INTEGER DEFAULT 1,
+            target_time TIMESTAMP
+        );
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS prediction_ranges (
+            id SERIAL PRIMARY KEY,
+            video_id TEXT NOT NULL REFERENCES video_list(video_id),
+            lower_bound BIGINT NOT NULL,
+            upper_bound BIGINT NOT NULL
         );
     """)
     logger.info("Tables ready")
-
+def parse_bound(s):
+    s = s.strip().upper()
+    if s.endswith('K'):
+        return int(float(s[:-1]) * 1000)
+    elif s.endswith('M'):
+        return int(float(s[:-1]) * 1000000)
+    elif s.endswith('B'):
+        return int(float(s[:-1]) * 1000000000)
+    else:
+        return int(float(s))
 def extract_video_id(link):
     parsed = urlparse(link)
     if parsed.hostname in ("youtube.com", "www.youtube.com"):
@@ -76,7 +86,6 @@ def extract_video_id(link):
     if parsed.hostname == "youtu.be":
         return parsed.path[1:] if len(parsed.path) > 1 else None
     return None
-
 def fetch_video_title(vid):
     if not youtube: return "Unknown Video"
     try:
@@ -84,7 +93,6 @@ def fetch_video_title(vid):
         return resp["items"][0]["snippet"]["title"][:50] if resp["items"] else "Unknown"
     except:
         return "Unknown"
-
 def fetch_views(ids):
     if not youtube or not ids: return {}
     try:
@@ -96,7 +104,6 @@ def fetch_views(ids):
     except Exception as e:
         logger.error(f"API error: {e}")
         return {}
-
 # SAFE + NO DUPLICATES
 def safe_store(vid, stats):
     cur = get_db().cursor()
@@ -104,14 +111,12 @@ def safe_store(vid, stats):
     now = datetime.now(ist)
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
     date = now.strftime("%Y-%m-%d")
-
     cur.execute("DELETE FROM views WHERE video_id=%s AND timestamp=%s", (vid, ts))
     cur.execute("""
         INSERT INTO views (video_id, date, timestamp, views, likes)
         VALUES (%s, %s, %s, %s, %s)
     """, (vid, date, ts, stats["views"], stats["likes"]))
     logger.info(f"STORED {vid} → {stats['views']:,} views")
-
 # SINGLETON BACKGROUND TASK
 def start_background():
     global _background_thread
@@ -124,7 +129,6 @@ def start_background():
                 wait = 300 - (now.minute % 5 * 60 + now.second)
                 if wait <= 0: wait += 300
                 time.sleep(wait)
-
                 cur = get_db().cursor()
                 cur.execute("SELECT video_id FROM video_list WHERE is_tracking=1")
                 ids = [r["video_id"] for r in cur.fetchall()]
@@ -139,7 +143,6 @@ def start_background():
     _background_thread = threading.Thread(target=run, daemon=True)
     _background_thread.start()
     logger.info("Background task started")
-
 # ONLY 4 VALUES PER ROW → matches your template
 def process_gains(vid, rows):
     if not rows:
@@ -149,12 +152,10 @@ def process_gains(vid, rows):
         views = row["views"]
         ts = row["timestamp"]
         date = row["date"]
-
         # Gain since last poll
         gain = 0
         if i > 0 and rows[i-1]["date"] == date:
             gain = views - rows[i-1]["views"]
-
         # Hourly gain
         ts_dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
         one_ago = (ts_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -166,19 +167,18 @@ def process_gains(vid, rows):
         """, (vid, date, one_ago))
         prev = cur.fetchone()
         hourly = views - prev["views"] if prev else 0
-
         # EXACTLY 4 items → timestamp, views, gain, hourly
         result.append((ts, views, gain, hourly))
     return result
-
 @app.route("/", methods=["GET"])
 def index():
     videos = []
     try:
         cur = get_db().cursor()
-        cur.execute("SELECT video_id, name, is_tracking FROM video_list")
+        cur.execute("SELECT video_id, name, is_tracking, target_time FROM video_list")
         for row in cur.fetchall():
             vid = row["video_id"]
+            target = row["target_time"]
             cur.execute("SELECT DISTINCT date FROM views WHERE video_id=%s ORDER BY date DESC", (vid,))
             dates = [r["date"] for r in cur.fetchall()]
             daily = {}
@@ -189,17 +189,57 @@ def index():
                     ORDER BY timestamp ASC
                 """, (vid, d))
                 daily[d] = process_gains(vid, cur.fetchall())
-            videos.append({
+            video_dict = {
                 "video_id": vid,
                 "name": row["name"],
                 "daily_data": daily,
                 "is_tracking": bool(row["is_tracking"])
-            })
+            }
+            if target:
+                cur.execute("SELECT lower_bound, upper_bound FROM prediction_ranges WHERE video_id=%s ORDER BY lower_bound", (vid,))
+                ranges = [(r["lower_bound"], r["upper_bound"]) for r in cur.fetchall()]
+                cur.execute("SELECT views FROM views WHERE video_id=%s ORDER BY timestamp DESC LIMIT 1", (vid,))
+                current_views_row = cur.fetchone()
+                current_views = current_views_row["views"] if current_views_row else 0
+                ist = pytz.timezone("Asia/Kolkata")
+                now = datetime.now(ist)
+                video_dict["target_time_str"] = target.astimezone(ist).strftime("%Y-%m-%d %H:%M:%S") if target else ""
+                video_dict["ranges_str"] = "\n".join(f"{low/1000000}M-{up/1000000}M" for low, up in ranges)
+                if now < target:
+                    delta = target - now
+                    delta_sec = delta.total_seconds()
+                    if delta_sec > 0:
+                        rates = []
+                        for low, up in ranges:
+                            need_low = max(0, low - current_views)
+                            need_up = max(0, up - current_views)
+                            hour_low = round(need_low * 3600 / delta_sec) if delta_sec > 0 and need_low > 0 else 0
+                            hour_up = round(need_up * 3600 / delta_sec) if delta_sec > 0 and need_up > 0 else 0
+                            min5_low = round(need_low * 300 / delta_sec) if delta_sec > 0 and need_low > 0 else 0
+                            min5_up = round(need_up * 300 / delta_sec) if delta_sec > 0 and need_up > 0 else 0
+                            rates.append({
+                                "range": f"{low:,}-{up:,}",
+                                "lower_5min": min5_low,
+                                "lower_hour": hour_low,
+                                "upper_5min": min5_up,
+                                "upper_hour": hour_up
+                            })
+                        video_dict["predictions"] = {
+                            "target_time": target.astimezone(ist).strftime("%Y-%m-%d %H:%M"),
+                            "rates": rates
+                        }
+                    else:
+                        video_dict["predictions"] = {"message": "Target time passed"}
+                else:
+                    video_dict["predictions"] = {"message": "Target time passed"}
+            else:
+                video_dict["target_time_str"] = ""
+                video_dict["ranges_str"] = ""
+            videos.append(video_dict)
         return render_template("index.html", videos=videos)
     except Exception as e:
         logger.error(f"Index error: {e}", exc_info=True)
         return render_template("index.html", videos=[], error_message="Loading...")
-
 @app.route("/add_video", methods=["POST"])
 def add_video():
     link = request.form.get("video_link", "").strip()
@@ -215,7 +255,6 @@ def add_video():
     if vid not in stats:
         flash("Can't fetch stats", "error")
         return redirect(url_for("index"))
-
     cur = get_db().cursor()
     cur.execute("""
         INSERT INTO video_list (video_id, name, is_tracking)
@@ -225,7 +264,41 @@ def add_video():
     safe_store(vid, stats[vid])
     flash(f"Added: {title}", "success")
     return redirect(url_for("index"))
-
+@app.route("/set_prediction/<video_id>", methods=["POST"])
+def set_prediction(video_id):
+    target_str = request.form.get("target_time", "").strip()
+    ranges_str = request.form.get("ranges", "").strip()
+    if not target_str:
+        flash("Enter target time", "error")
+        return redirect(url_for("index"))
+    try:
+        ist = pytz.timezone("Asia/Kolkata")
+        target = datetime.strptime(target_str, "%Y-%m-%d %H:%M:%S")
+        target = ist.localize(target)
+    except ValueError:
+        flash("Invalid target time format (YYYY-MM-DD HH:MM:SS)", "error")
+        return redirect(url_for("index"))
+    cur = get_db().cursor()
+    cur.execute("UPDATE video_list SET target_time=%s WHERE video_id=%s", (target, video_id))
+    cur.execute("DELETE FROM prediction_ranges WHERE video_id=%s", (video_id,))
+    if ranges_str:
+        for line in ranges_str.splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    low_str, up_str = line.split('-')
+                    low = parse_bound(low_str)
+                    up = parse_bound(up_str)
+                    if low >= up:
+                        raise ValueError("Lower bound must be less than upper")
+                    cur.execute("""
+                        INSERT INTO prediction_ranges (video_id, lower_bound, upper_bound)
+                        VALUES (%s, %s, %s)
+                    """, (video_id, low, up))
+                except Exception as e:
+                    flash(f"Invalid range '{line}': {str(e)}", "error")
+    flash("Prediction settings updated", "success")
+    return redirect(url_for("index"))
 @app.route("/stop_tracking/<video_id>")
 def toggle(video_id):
     cur = get_db().cursor()
@@ -234,15 +307,14 @@ def toggle(video_id):
     cur.execute("UPDATE video_list SET is_tracking=%s WHERE video_id=%s", (0 if current else 1, video_id))
     flash("Paused" if current else "Resumed", "success")
     return redirect(url_for("index"))
-
 @app.route("/remove_video/<video_id>")
 def remove(video_id):
     cur = get_db().cursor()
     cur.execute("DELETE FROM views WHERE video_id=%s", (video_id,))
+    cur.execute("DELETE FROM prediction_ranges WHERE video_id=%s", (video_id,))
     cur.execute("DELETE FROM video_list WHERE video_id=%s", (video_id,))
     flash("Removed", "success")
     return redirect(url_for("index"))
-
 @app.route("/export/<video_id>")
 def export(video_id):
     cur = get_db().cursor()
@@ -255,10 +327,8 @@ def export(video_id):
     fname = "export.xlsx"
     df.to_excel(fname, index=False)
     return send_file(fname, as_attachment=True, download_name=f"{name}_views.xlsx")
-
 # START
 init_db()
 start_background()
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
