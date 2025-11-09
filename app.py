@@ -1,3 +1,4 @@
+# app.py
 import os
 import threading
 import logging
@@ -25,7 +26,7 @@ API_KEY = os.getenv("YOUTUBE_API_KEY")
 youtube = build("youtube", "v3", developerKey=API_KEY) if API_KEY else None
 
 # PostgreSQL
-POSTGRES_URL = os.getenv("DATABASE_URL", 
+POSTGRES_URL = os.getenv("DATABASE_URL",
     "postgresql://ytanalysis_db_user:Uqy7UPp7lOfu1sEHvVOKlWwozrhpZzCk@"
     "dpg-d46am6q4d50c73cgrkv0-a.oregon-postgres.render.com/ytanalysis_db")
 
@@ -77,7 +78,7 @@ def extract_video_id(link):
     return None
 
 def fetch_video_title(vid):
-    if not youtube: return "Unknown Video"
+    if not youtube: return "Unknown"
     try:
         resp = youtube.videos().list(part="snippet", id=vid).execute()
         return resp["items"][0]["snippet"]["title"][:50] if resp["items"] else "Unknown"
@@ -96,20 +97,24 @@ def fetch_views(ids):
         logger.error(f"API error: {e}")
         return {}
 
-# SAFE + NO DUPLICATES
+# CLEAN :00 TIMESTAMPS + NO DUPLICATES
 def safe_store(vid, stats):
     cur = get_db().cursor()
     ist = pytz.timezone("Asia/Kolkata")
     now = datetime.now(ist)
-    ts = now.strftime("%Y-%m-%d %H:%M:%S")
-    date = now.strftime("%Y-%m-%d")
+    
+    # Round down to nearest 5-minute mark → perfect :00
+    minute = now.minute - (now.minute % 5)
+    rounded = now.replace(minute=minute, second=0, microsecond=0)
+    ts = rounded.strftime("%Y-%m-%d %H:%M:00")
+    date = rounded.strftime("%Y-%m-%d")
 
     cur.execute("DELETE FROM views WHERE video_id=%s AND timestamp=%s", (vid, ts))
     cur.execute("""
         INSERT INTO views (video_id, date, timestamp, views, likes)
         VALUES (%s, %s, %s, %s, %s)
     """, (vid, date, ts, stats["views"], stats["likes"]))
-    logger.info(f"STORED {vid} → {stats['views']:,} views")
+    logger.info(f"STORED {vid} → {stats['views']:,} views @ {ts}")
 
 # SINGLETON BACKGROUND TASK
 def start_background():
@@ -120,6 +125,7 @@ def start_background():
         while True:
             try:
                 now = datetime.now(pytz.timezone("Asia/Kolkata"))
+                # Sleep until next 5-min mark
                 wait = 300 - (now.minute % 5 * 60 + now.second)
                 if wait <= 0: wait += 300
                 time.sleep(wait)
@@ -139,34 +145,29 @@ def start_background():
     _background_thread.start()
     logger.info("Background task started")
 
-# ONLY 4 VALUES PER ROW → matches your template
+# 4 VALUES: timestamp, views, gain, hourly
 def process_gains(vid, rows):
-    if not rows:
-        return []
+    if not rows: return []
     result = []
     for i, row in enumerate(rows):
         views = row["views"]
         ts = row["timestamp"]
         date = row["date"]
 
-        # Gain since last poll
         gain = 0
         if i > 0 and rows[i-1]["date"] == date:
             gain = views - rows[i-1]["views"]
 
-        # Hourly gain
         ts_dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
         one_ago = (ts_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
         cur = get_db().cursor()
         cur.execute("""
-            SELECT views FROM views
-            WHERE video_id=%s AND date=%s AND timestamp <= %s
+            SELECT views FROM views WHERE video_id=%s AND date=%s AND timestamp <= %s
             ORDER BY timestamp DESC LIMIT 1
         """, (vid, date, one_ago))
         prev = cur.fetchone()
         hourly = views - prev["views"] if prev else 0
 
-        # EXACTLY 4 items → timestamp, views, gain, hourly
         result.append((ts, views, gain, hourly))
     return result
 
@@ -182,11 +183,7 @@ def index():
             dates = [r["date"] for r in cur.fetchall()]
             daily = {}
             for d in dates:
-                cur.execute("""
-                    SELECT timestamp, views, date
-                    FROM views WHERE video_id=%s AND date=%s
-                    ORDER BY timestamp ASC
-                """, (vid, d))
+                cur.execute("SELECT timestamp, views, date FROM views WHERE video_id=%s AND date=%s ORDER BY timestamp ASC", (vid, d))
                 daily[d] = process_gains(vid, cur.fetchall())
             videos.append({
                 "video_id": vid,
@@ -229,9 +226,10 @@ def add_video():
 def toggle(video_id):
     cur = get_db().cursor()
     cur.execute("SELECT is_tracking FROM video_list WHERE video_id=%s", (video_id,))
-    current = cur.fetchone()["is_tracking"]
-    cur.execute("UPDATE video_list SET is_tracking=%s WHERE video_id=%s", (0 if current else 1, video_id))
-    flash("Paused" if current else "Resumed", "success")
+    cur_state = cur.fetchone()["is_tracking"]
+    new_state = 0 if cur_state else 1
+    cur.execute("UPDATE video_list SET is_tracking=%s WHERE video_id=%s", (new_state, video_id))
+    flash("Paused" if new_state == 0 else "Resumed", "success")
     return redirect(url_for("index"))
 
 @app.route("/remove_video/<video_id>")
@@ -239,25 +237,29 @@ def remove(video_id):
     cur = get_db().cursor()
     cur.execute("DELETE FROM views WHERE video_id=%s", (video_id,))
     cur.execute("DELETE FROM video_list WHERE video_id=%s", (video_id,))
-    flash("Removed", "success")
+    flash("Video removed", "success")
     return redirect(url_for("index"))
 
 @app.route("/export/<video_id>")
 def export(video_id):
     cur = get_db().cursor()
     cur.execute("SELECT name FROM video_list WHERE video_id=%s", (video_id,))
-    name = cur.fetchone()["name"]
+    row = cur.fetchone()
+    if not row:
+        flash("Not found", "error")
+        return redirect(url_for("index"))
+    name = row["name"]
     cur.execute("SELECT timestamp, views FROM views WHERE video_id=%s ORDER BY timestamp", (video_id,))
-    rows = cur.fetchall()
-    data = [{"Time": r["timestamp"], "Views": r["views"]} for r in rows]
-    df = pd.DataFrame(data)
+    df = pd.DataFrame([{"Time": r["timestamp"], "Views": r["views"]} for r in cur.fetchall()])
     fname = "export.xlsx"
     df.to_excel(fname, index=False)
-    return send_file(fname, as_attachment=True, download_name=f"{name}_views.xlsx")
+    return send_file(fname, as_attachment=True, download_name=f"{name}_stats.xlsx")
 
 # START
 init_db()
 start_background()
 
+# RENDER FIX — binds to $PORT automatically
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
