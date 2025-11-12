@@ -146,29 +146,74 @@ def start_background():
     logger.info("Background task started")
 
 # 4 VALUES: timestamp, views, gain, hourly
+# 4 VALUES: timestamp, views, gain, hourly, pct_change_vs_prev24h
 def process_gains(vid, rows):
-    if not rows: return []
+    """
+    rows: list of dicts with keys 'timestamp', 'views', 'date'
+    Returns list of tuples: (ts, views, gain, hourly, pct_change)
+      pct_change is a float (positive means increase), or None if not computable.
+    """
+    if not rows:
+        return []
     result = []
+    conn = get_db()
     for i, row in enumerate(rows):
         views = row["views"]
-        ts = row["timestamp"]
-        date = row["date"]
+        ts = row["timestamp"]          # string: "YYYY-MM-DD HH:MM:SS"
+        date = row["date"]             # date object or "YYYY-MM-DD"
 
+        # compute 5-min gain vs previous sample (same day)
         gain = 0
         if i > 0 and rows[i-1]["date"] == date:
             gain = views - rows[i-1]["views"]
 
+        # compute hourly: find latest sample <= ts - 1 hour (same video, same day)
         ts_dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
         one_ago = (ts_dt - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
-        cur = get_db().cursor()
+        cur = conn.cursor()
         cur.execute("""
-            SELECT views FROM views WHERE video_id=%s AND date=%s AND timestamp <= %s
+            SELECT views FROM views
+            WHERE video_id=%s AND date=%s AND timestamp <= %s
             ORDER BY timestamp DESC LIMIT 1
         """, (vid, date, one_ago))
         prev = cur.fetchone()
         hourly = views - prev["views"] if prev else 0
 
-        result.append((ts, views, gain, hourly))
+        # --- NEW: compute prev 24h same-time 5-min gain ---
+        prev_date_dt = ts_dt.date() - timedelta(days=1)
+        # Build timestamp strings for prev date at same clock time, and minus 5 minutes
+        ts_prev = datetime.combine(prev_date_dt, ts_dt.time()).strftime("%Y-%m-%d %H:%M:%S")
+        ts_prev_minus5 = (datetime.combine(prev_date_dt, ts_dt.time()) - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Fetch views at those two timestamps (we accept <= exact timestamp to be tolerant)
+        cur.execute("""
+            SELECT views FROM views
+            WHERE video_id=%s AND timestamp <= %s AND date=%s
+            ORDER BY timestamp DESC LIMIT 1
+        """, (vid, ts_prev, prev_date_dt.strftime("%Y-%m-%d")))
+        p1 = cur.fetchone()
+        cur.execute("""
+            SELECT views FROM views
+            WHERE video_id=%s AND timestamp <= %s AND date=%s
+            ORDER BY timestamp DESC LIMIT 1
+        """, (vid, ts_prev_minus5, prev_date_dt.strftime("%Y-%m-%d")))
+        p0 = cur.fetchone()
+
+        prev_gain = None
+        if p1 and p0:
+            # compute previous day's 5min gain
+            prev_gain = p1["views"] - p0["views"]
+
+        pct_change = None
+        try:
+            if prev_gain is not None and prev_gain != 0:
+                pct_change = (gain - prev_gain) / prev_gain * 100.0
+            else:
+                pct_change = None
+        except Exception:
+            pct_change = None
+
+        result.append((ts, views, gain, hourly, pct_change))
     return result
 
 @app.route("/", methods=["GET"])
